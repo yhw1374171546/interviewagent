@@ -1,0 +1,57 @@
+"""
+全局配置
+========
+所有配置项集中管理，支持环境变量覆盖。
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+@dataclass
+class Settings:
+    """Agent 全局配置"""
+
+    # ── LLM ──────────────────────────────────────────
+    llm_provider: str = os.getenv("LLM_PROVIDER", "openai")
+    llm_model: str = os.getenv("LLM_MODEL", "gpt-4o")
+    llm_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    llm_base_url: str | None = os.getenv("LLM_BASE_URL") or None
+    llm_temperature: float = 0.7
+    llm_max_tokens: int = 4096
+
+    # ── Anthropic ────────────────────────────────────
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+
+    # ── Agent ────────────────────────────────────────
+    agent_max_steps: int = 15
+    agent_max_tool_calls: int = 30
+    agent_verbose: bool = True
+
+    # ── Memory ───────────────────────────────────────
+    memory_max_tokens: int = 8000
+    memory_persist_dir: str = "./data/chroma"
+    memory_embedding_model: str = "all-MiniLM-L6-v2"
+
+    # ── Logging ──────────────────────────────────────
+    log_level: str = "INFO"
+    log_dir: str = "./logs"
+
+    # ── Paths ────────────────────────────────────────
+    project_root: Path = field(default_factory=lambda: Path(__file__).parent.parent.resolve())
+
+    def model_post_init(self):
+        """初始化后创建必要的目录"""
+        Path(self.log_dir).mkdir(exist_ok=True)
+        Path(self.memory_persist_dir).mkdir(parents=True, exist_ok=True)
+
+
+# 全局单例
+settings = Settings()
