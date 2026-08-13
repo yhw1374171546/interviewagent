@@ -37,23 +37,22 @@ body {
   overflow: hidden;
 }
 
-/* ════════════ 落地页 ════════════ */
+/* ════════════ 新建面试面板（聊天主区内的表单） ════════════ */
 
-.landing {
-  height: 100vh;
+.new-interview-panel {
+  flex: 1;
+  overflow-y: auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #f7f9fc 0%, #eef1f7 100%);
-  overflow-y: auto;
-  padding: 40px 16px;
+  padding: 32px 24px;
+  background: linear-gradient(180deg, #fbfcfe 0%, #f4f6fb 100%);
 }
+.panel-inner { width: 100%; max-width: 620px; }
 
-.landing-inner { width: 100%; max-width: 640px; }
-
-.landing-logo { text-align: center; margin-bottom: 28px; }
+.panel-logo { text-align: center; margin-bottom: 24px; }
 .logo-icon { font-size: 44px; }
-.landing-logo h1 { font-size: 26px; margin: 8px 0 6px; letter-spacing: 1px; }
+.panel-logo h1 { font-size: 24px; margin: 8px 0 6px; letter-spacing: 1px; }
 .subtitle { color: var(--text-dim); font-size: 14px; }
 
 .landing-card {
@@ -125,33 +124,6 @@ body {
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-primary:disabled { background: #a8b4f5; cursor: not-allowed; }
 
-.btn-history {
-  width: 100%;
-  margin-top: 10px;
-  padding: 10px;
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all .15s;
-}
-.btn-history:hover { color: var(--accent); border-color: var(--accent); }
-
-/* 聊天区空状态（未选中会话时的欢迎占位） */
-.empty-chat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: var(--text-dim);
-}
-.empty-chat .empty-icon { font-size: 40px; }
-.empty-chat .empty-title { font-size: 17px; font-weight: 600; color: var(--text-main); }
-.empty-chat .empty-hint { font-size: 13px; line-height: 1.8; text-align: center; }
 
 .error-msg {
   margin-top: 14px;

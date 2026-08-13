@@ -8,37 +8,8 @@
 </head>
 <body>
 
-<!-- ══════════════ 落地页 ══════════════ -->
-<div id="landing" class="landing">
-  <div class="landing-inner">
-    <div class="landing-logo">
-      <div class="logo-icon">🎙️</div>
-      <h1>AI 面试模拟</h1>
-      <p class="subtitle">上传简历或粘贴文本，Agent 将围绕你的内容进行全真模拟面试</p>
-    </div>
-
-    <div class="landing-card">
-      <textarea id="resume-text" class="resume-textarea"
-        placeholder="在此粘贴简历内容或岗位 JD……&#10;&#10;示例：&#10;Java 后端开发工程师&#10;求职意向：Java 开发工程师&#10;技术栈：Spring Boot、MySQL、Redis、Kafka……"></textarea>
-
-      <div class="divider"><span>或</span></div>
-
-      <div id="drop-zone" class="drop-zone">
-        <input type="file" id="file-input" accept=".pdf" hidden>
-        <div class="drop-icon">📄</div>
-        <div class="drop-text">点击或拖拽上传 PDF 简历</div>
-        <div id="file-name" class="file-name"></div>
-      </div>
-
-      <button id="start-btn" class="btn-primary">开始对话</button>
-      <button id="view-history-btn" class="btn-history">查看历史面试 →</button>
-      <div id="landing-error" class="error-msg" hidden></div>
-    </div>
-  </div>
-</div>
-
-<!-- ══════════════ 聊天页 ══════════════ -->
-<div id="chat-app" class="chat-app" hidden>
+<!-- ══════════════ 聊天页（唯一视图，DeepSeek 式：侧边栏历史常驻） ══════════════ -->
+<div id="chat-app" class="chat-app">
 
   <!-- 左侧边栏 -->
   <aside class="sidebar">
@@ -54,13 +25,41 @@
   <!-- 主聊天区 -->
   <main class="chat-main">
     <header class="chat-header">
-      <div class="chat-title" id="chat-title">面试中</div>
+      <div class="chat-title" id="chat-title">面试模拟</div>
       <div class="chat-progress" id="chat-progress"></div>
     </header>
 
-    <div id="messages" class="messages"></div>
+    <!-- 新建面试面板（未选中会话时显示） -->
+    <section id="new-interview-panel" class="new-interview-panel">
+      <div class="panel-inner">
+        <div class="panel-logo">
+          <div class="logo-icon">🎙️</div>
+          <h1>AI 面试模拟</h1>
+          <p class="subtitle">上传简历或粘贴文本，Agent 将围绕你的内容进行全真模拟面试</p>
+        </div>
 
-    <footer class="composer">
+        <div class="landing-card">
+          <textarea id="resume-text" class="resume-textarea"
+            placeholder="在此粘贴简历内容或岗位 JD……&#10;&#10;示例：&#10;Java 后端开发工程师&#10;求职意向：Java 开发工程师&#10;技术栈：Spring Boot、MySQL、Redis、Kafka……"></textarea>
+
+          <div class="divider"><span>或</span></div>
+
+          <div id="drop-zone" class="drop-zone">
+            <input type="file" id="file-input" accept=".pdf" hidden>
+            <div class="drop-icon">📄</div>
+            <div class="drop-text">点击或拖拽上传 PDF 简历</div>
+            <div id="file-name" class="file-name"></div>
+          </div>
+
+          <button id="start-btn" class="btn-primary">开始对话</button>
+          <div id="landing-error" class="error-msg" hidden></div>
+        </div>
+      </div>
+    </section>
+
+    <div id="messages" class="messages" hidden></div>
+
+    <footer class="composer" hidden>
       <div class="composer-box">
         <textarea id="answer-input" class="answer-input" rows="1"
           placeholder="输入你的回答…（Enter 发送，Shift+Enter 换行）"></textarea>

@@ -22,34 +22,20 @@ const TYPE_LABELS = {
 
 /* ═══════════════ 视图切换 ═══════════════ */
 
-function showLanding() {
-  $("#landing").hidden = false;
-  $("#chat-app").hidden = true;
-  state.currentSession = null;
-  state.currentMeta = null;
-}
-
 function showChat() {
-  $("#landing").hidden = true;
   $("#chat-app").hidden = false;
   loadHistory();
-  // 未选中会话 → 显示欢迎占位（DeepSeek 式: 进入即见侧边栏历史）
-  if (!state.currentSession) {
-    renderEmptyState();
-    updateComposer();
-  }
 }
 
-function renderEmptyState() {
-  const container = $("#messages");
-  container.innerHTML = "";
-  const el = document.createElement("div");
-  el.className = "empty-chat";
-  el.innerHTML = `
-    <div class="empty-icon">🎙️</div>
-    <div class="empty-title">欢迎使用 AI 面试模拟</div>
-    <div class="empty-hint">👈 点击左侧历史记录继续之前的面试<br>或点击「＋ 开始新面试」开启新对话</div>`;
-  container.appendChild(el);
+function showNewInterview() {
+  // 新建面试面板: 主区显示表单，侧边栏历史常驻可点
+  state.currentSession = null;
+  state.currentMeta = null;
+  $("#chat-title").textContent = "新的面试";
+  $("#chat-progress").textContent = "";
+  $("#new-interview-panel").hidden = false;
+  $("#messages").hidden = true;
+  updateComposer();
 }
 
 /* ═══════════════ 落地页逻辑 ═══════════════ */
@@ -288,7 +274,7 @@ function askDelete(s) {
     overlay.hidden = true;
     const resp = await fetch(`/api/interviews/${s.session_id}`, { method: "DELETE" });
     if (resp.ok && state.currentSession === s.session_id) {
-      showLanding();
+      showNewInterview();
     }
     loadHistory();
   };
@@ -305,6 +291,10 @@ async function openSession(sessionId) {
   state.currentMeta = data.meta;
   // 注意: 后端 JSON 字段是 snake_case（can_resume），不是 camelCase
   state.canResume = data.can_resume;
+
+  // 进入会话视图: 隐藏新建面试面板，显示消息区
+  $("#new-interview-panel").hidden = true;
+  $("#messages").hidden = false;
 
   // 更新侧边栏高亮
   document.querySelectorAll(".history-item").forEach((el) => {
@@ -619,27 +609,14 @@ $("#new-interview-btn").addEventListener("click", () => {
   $("#resume-text").value = "";
   selectedFile = null;
   $("#file-name").textContent = "";
-  showLanding();
+  showNewInterview();
 });
 
-// 落地页「查看历史面试」入口 — 直接进入聊天视图点历史记录
-$("#view-history-btn").addEventListener("click", showChat);
-
-async function init() {
-  // DeepSeek 式入口: 有历史会话 → 直接进聊天视图（历史随时可点）；
-  // 无历史 → 落地页（上传简历/粘贴 JD）
-  try {
-    const resp = await fetch("/api/interviews");
-    const data = await resp.json();
-    if (data.sessions && data.sessions.length) {
-      showChat();
-    } else {
-      showLanding();
-    }
-  } catch (e) {
-    console.error("初始化失败:", e);
-    showLanding();
-  }
+function init() {
+  // DeepSeek 式单视图: 始终进入聊天界面，侧边栏历史常驻，
+  // 主区显示新建面试表单（未选中会话时）
+  showChat();
+  showNewInterview();
 }
 
 init();
