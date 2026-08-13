@@ -397,11 +397,14 @@ class AnswerEvaluator:
         missed = []
 
         for point in expected_points:
-            # 拆词: "GIL定义" → ["gil", "定义"]
+            # 拆词: "B+树结构" → ["b+", "树结构"]
             keywords = self._tokenize(point)
-            # 只要命中 ≥50% 的关键词就算匹配
-            hits = sum(1 for kw in keywords if kw in answer_lower)
-            if hits >= max(1, len(keywords) * 0.5):
+            # 每词按命中程度计分（精确子串=1.0，中文按字符覆盖率），
+            # 总分达标视为命中要点。单关键词要点阈值 0.6（字符覆盖率
+            # 语义命中即可），多关键词按词数 × 50%
+            hit_score = sum(self._keyword_hit(kw, answer_lower) for kw in keywords)
+            threshold = 0.6 if len(keywords) == 1 else len(keywords) * 0.5
+            if hit_score >= threshold:
                 matched.append(point)
             else:
                 missed.append(point)
@@ -410,18 +413,46 @@ class AnswerEvaluator:
         return matched, missed, rate
 
     def _tokenize(self, text: str) -> list[str]:
-        """中英文混合分词"""
-        # 简单策略: 英文按空格+标点分，中文按字组合
-        tokens = re.findall(r"[a-zA-Z0-9]+|[一-鿿]+", text.lower())
+        """
+        中英文混合分词。
+
+        英文保留符号后缀（"b+"、"c++"），中文取连续串。
+        注意: 中文连续串是"最大匹配"整串（如"范围查询优势"），
+        真实回答几乎不会逐字复述 — 因此匹配时用 _keyword_hit 的
+        字符覆盖率，而不是要求整串相等。
+        """
+        tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9+]*|[一-鿿]{2,}", text.lower())
         return [t.strip() for t in tokens if len(t.strip()) > 1]
+
+    @staticmethod
+    def _keyword_hit(keyword: str, answer_lower: str) -> float:
+        """
+        单个关键词的命中程度 (0.0-1.0)。
+
+        - 精确子串命中 → 1.0
+        - 中文长词 → 字符覆盖率（"范围查询优势" 在回答里出现
+          "范围查询" 4/6 字符 = 0.67，语义上已命中要点）
+        - 其余 → 0
+        """
+        if keyword in answer_lower:
+            return 1.0
+        # 含中文字符的词做字符覆盖匹配（限制词长 ≥4，避免"查询"这种
+        # 高频双字词误命中）
+        if len(keyword) >= 4 and any("一" <= ch <= "鿿" for ch in keyword):
+            chars = set(keyword)
+            coverage = sum(1 for ch in chars if ch in answer_lower) / len(chars)
+            return coverage
+        return 0.0
 
     def _relevance_match(self, answer: str, question: str) -> float:
         """评估回答与问题的相关性（基于问题中关键词在回答中的出现率）"""
         q_keywords = self._tokenize(question.lower())
         if not q_keywords:
             return 0.8
-        hits = sum(1 for kw in q_keywords if kw.lower() in answer.lower())
-        return hits / len(q_keywords)
+        answer_lower = answer.lower()
+        # 同样用命中程度而非整串相等（中文题目词不会逐字复述）
+        hits = sum(self._keyword_hit(kw, answer_lower) for kw in q_keywords)
+        return min(1.0, hits / len(q_keywords))
 
     def _rate_from_match(self, rate: float, min_score: int, max_score: int) -> int:
         """将匹配率映射到分数区间"""
