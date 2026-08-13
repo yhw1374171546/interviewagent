@@ -1,0 +1,439 @@
+"""
+面试模拟 Agent — Web 服务
+=========================
+FastAPI 后端，对接 interview 核心模块。
+
+架构:
+    Browser (原生 JS)
+        │  REST API
+    FastAPI (web/server.py)
+        │  调用
+    Interviewer + SessionManager (interview/)
+        │  调用
+    LLMClient (core/) — OpenAI / Anthropic / Mock
+
+核心设计:
+    1. 无状态 API + 会话注册表: 活跃的 Interviewer 实例在内存中
+       (INTERVIEWERS dict)，每次 turn 后序列化状态到磁盘 — 服务
+       重启后可从 SessionManager 恢复未完成的面试。
+    2. Mock 降级: 未配置 API Key 时自动使用 MockLLMClient，
+       Web Demo 无需任何配置即可完整体验面试流程。
+    3. 简历解析: 上传 PDF 用 pypdf 提取文本；岗位名从「求职意向」
+       等关键词正则提取，回退到 JD 解析器的猜测逻辑。
+
+启动:
+    uvicorn web.server:app --reload
+"""
+
+from __future__ import annotations
+
+import io
+import sys
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+sys.path.insert(0, str(Path(__file__).parent.parent))  # 保证项目根目录可导入
+
+from config import settings
+from core.llm import LLMClient
+from core.mock_llm import MockLLMClient
+from interview.interviewer import Interviewer
+from interview.session_manager import SessionManager
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+app = FastAPI(title="面试模拟 Agent")
+
+# ── 静态文件 ───────────────────────────────────────────────────
+WEB_DIR = Path(__file__).parent
+app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
+
+
+@app.get("/")
+async def index():
+    """首页（落地页 + 聊天页共用一个 HTML，JS 控制视图切换）"""
+    return FileResponse(WEB_DIR / "static" / "index.html")
+
+
+# ── LLM 客户端（单例，懒初始化）────────────────────────────────
+
+_llm: LLMClient | None = None
+
+
+def get_llm() -> LLMClient:
+    """
+    获取全局 LLM 客户端。
+
+    优先级: 配置的 provider → 无 Key 时降级到 Mock。
+    Mock 模式下前端会显示「演示模式」提示。
+    """
+    global _llm
+    if _llm is not None:
+        return _llm
+
+    provider = settings.llm_provider
+    has_key = bool(settings.llm_api_key or settings.anthropic_api_key)
+
+    if provider == "mock" or not has_key:
+        logger.info("未配置 API Key，Web 使用 Mock LLM（演示模式）")
+        _llm = MockLLMClient()
+        return _llm
+
+    if provider == "anthropic" and settings.anthropic_api_key:
+        from core.llm import AnthropicClient
+        _llm = AnthropicClient(model=settings.llm_model, api_key=settings.anthropic_api_key)
+    else:
+        from core.llm import OpenAIClient
+        _llm = OpenAIClient(model=settings.llm_model, api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+    return _llm
+
+
+def is_mock_mode() -> bool:
+    return isinstance(get_llm(), MockLLMClient)
+
+
+# ── 会话存储 ───────────────────────────────────────────────────
+
+session_mgr = SessionManager(
+    storage_dir=str(settings.project_root / "data" / "sessions")
+)
+# 活跃会话注册表: session_id → Interviewer（内存态）
+INTERVIEWERS: dict[str, Interviewer] = {}
+
+
+# ── 工具函数 ───────────────────────────────────────────────────
+
+def extract_pdf_text(file: UploadFile) -> str:
+    """用 pypdf 提取 PDF 简历文本"""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise HTTPException(500, "未安装 pypdf，请执行: pip install pypdf")
+
+    content = file.file.read()
+    reader = PdfReader(io.BytesIO(content))
+    pages = [page.extract_text() or "" for page in reader.pages]
+    text = "\n".join(pages).strip()
+    if not text:
+        raise HTTPException(400, "PDF 无法提取文本（可能是扫描件图片型 PDF）")
+    return text
+
+
+def question_to_dict(q) -> dict:
+    """InterviewQuestion → API 返回结构"""
+    if q is None:
+        return None
+    return {
+        "id": q.id,
+        "type": q.type.value,
+        "category": q.category,
+        "question": q.question,
+        "difficulty": q.difficulty,
+    }
+
+
+def evaluation_to_dict(ev) -> dict | None:
+    """EvaluationResult → API 返回结构"""
+    if ev is None:
+        return None
+    return {
+        "total_score": ev.total_score,
+        "level": ev.level,
+        "correctness": ev.correctness,
+        "depth": ev.depth,
+        "structure": ev.structure,
+        "relevance": ev.relevance,
+        "overall_comment": ev.overall_comment,
+        "strengths": ev.strengths,
+        "weaknesses": ev.weaknesses,
+        "keyword_match_rate": ev.keyword_match_rate,
+        "matched_points": ev.matched_points,
+        "missed_points": ev.missed_points,
+    }
+
+
+def report_to_dict(report) -> dict | None:
+    """InterviewReport → API 返回结构"""
+    if report is None:
+        return None
+    return {
+        "overall_score": report.overall_score,
+        "overall_level": report.overall_level,
+        "avg_correctness": report.avg_correctness,
+        "avg_depth": report.avg_depth,
+        "avg_structure": report.avg_structure,
+        "avg_relevance": report.avg_relevance,
+        "total_questions": report.total_questions,
+        "answered_questions": report.answered_questions,
+        "follow_up_count": report.follow_up_count,
+        "main_strengths": report.main_strengths,
+        "main_weaknesses": report.main_weaknesses,
+        "improvement_advice": report.improvement_advice,
+        "verdict": report.verdict,
+        "verdict_reason": report.verdict_reason,
+        "details": report.details,
+    }
+
+
+def meta_to_dict(meta) -> dict:
+    """SessionMeta → 侧边栏列表项结构"""
+    return {
+        "session_id": meta.session_id,
+        "position": meta.position,
+        "display_name": meta.display_name,
+        "custom_name": meta.custom_name,
+        "created_at": meta.created_at,
+        "status": meta.status,
+        "overall_score": meta.overall_score,
+        "pinned": meta.pinned,
+        "message_count": 0,  # 列表不加载完整记录，占位
+    }
+
+
+def get_interviewer(session_id: str) -> Interviewer:
+    """
+    获取 Interviewer：优先内存注册表，其次从磁盘恢复。
+
+    断点恢复: 服务重启后 INTERVIEWERS 为空，从 SessionManager
+    加载 interviewer_state 快照重建（Interviewer.from_dict）。
+    """
+    if session_id in INTERVIEWERS:
+        return INTERVIEWERS[session_id]
+
+    record = session_mgr.load(session_id)
+    if not record:
+        raise HTTPException(404, "会话不存在")
+    if record.meta.status != "in_progress":
+        raise HTTPException(400, "该面试已结束")
+    if not record.interviewer_state:
+        raise HTTPException(500, "会话状态快照缺失，无法恢复")
+
+    interviewer = Interviewer.from_dict(record.interviewer_state, get_llm())
+    INTERVIEWERS[session_id] = interviewer
+    # 内存聊天记录以磁盘为准（服务重启后 RECORD_MESSAGES 为空）
+    RECORD_MESSAGES.setdefault(session_id, list(record.messages))
+    logger.info(f"从磁盘恢复面试会话 {session_id}")
+    return interviewer
+
+
+def persist(session_id: str, interviewer: Interviewer) -> None:
+    """保存会话: 聊天记录 + 状态快照 + 元数据"""
+    record = session_mgr.load(session_id)
+    if not record:
+        return
+
+    record.interviewer_state = interviewer.to_dict()
+    record.messages = RECORD_MESSAGES[session_id]
+    record.meta.answered_count = len(interviewer.state.answers)
+    record.meta.question_count = len(interviewer.state.plan.questions)
+    if interviewer.state.is_finished:
+        record.meta.status = "completed"
+    session_mgr.save(record)
+
+
+# 聊天记录注册表（内存，保存时写入 SessionRecord.messages）
+RECORD_MESSAGES: dict[str, list[dict]] = {}
+
+
+def append_message(session_id: str, **msg) -> None:
+    RECORD_MESSAGES.setdefault(session_id, []).append(msg)
+
+
+# ── API: 面试生命周期 ─────────────────────────────────────────
+
+@app.post("/api/interviews")
+async def create_interview(
+    text: str | None = Form(None),
+    file: UploadFile | None = File(None),
+):
+    """
+    创建面试会话。
+
+    输入: 简历 PDF 文件 或 文本（简历/岗位 JD）。
+    流程: 提取文本 → Interviewer.start（解析+出题+暖场）→ 第一题。
+    """
+    if file and file.filename:
+        content = extract_pdf_text(file)
+    elif text and text.strip():
+        content = text.strip()
+    else:
+        raise HTTPException(400, "请上传 PDF 简历或粘贴文本")
+
+    if len(content) < 10:
+        raise HTTPException(400, "内容太短，请提供完整的简历或 JD")
+
+    # 创建 Interviewer 并开始
+    interviewer = Interviewer(get_llm())
+    try:
+        turn_start = await interviewer.start(content)
+        warmup_text = turn_start.message
+        turn = await interviewer.next_question()
+    except Exception as e:
+        raise HTTPException(500, f"面试初始化失败: {e}")
+
+    # 岗位名: LLM 解析 > 求职意向正则 > 岗位关键词猜测 > 候选人
+    position = interviewer.state.jd_analysis.position or "候选人"
+
+    # 建立会话
+    record = session_mgr.create_session(
+        position=position,
+        jd_text=content,
+        tags=interviewer.state.jd_analysis.all_skills[:8],
+    )
+    session_id = record.meta.session_id
+    session_mgr.save(record)  # 初始化磁盘文件（persist 依赖 load）
+    INTERVIEWERS[session_id] = interviewer
+    RECORD_MESSAGES[session_id] = []
+
+    # 记录暖场 + 第一题
+    append_message(session_id, role="assistant", kind="warmup", content=warmup_text)
+    append_message(session_id, role="assistant", kind="question",
+                   content=turn.question.question, question=question_to_dict(turn.question),
+                   progress=turn.progress)
+    persist(session_id, interviewer)
+
+    return {
+        "session_id": session_id,
+        "position": position,
+        "mock": is_mock_mode(),
+        "messages": RECORD_MESSAGES[session_id],
+    }
+
+
+@app.post("/api/interviews/{session_id}/answer")
+async def submit_answer(session_id: str, payload: dict):
+    """提交回答 → 返回评估 + 追问/下一题/报告"""
+    interviewer = get_interviewer(session_id)
+    answer = (payload.get("answer") or "").strip()
+    if not answer:
+        raise HTTPException(400, "回答不能为空")
+
+    append_message(session_id, role="user", kind="answer", content=answer)
+
+    try:
+        turn = await interviewer.submit_answer(answer)
+    except Exception as e:
+        raise HTTPException(500, f"评估失败: {e}")
+
+    evaluation = evaluation_to_dict(turn.evaluation)
+    report = report_to_dict(turn.report)
+
+    if evaluation:
+        append_message(session_id, role="assistant", kind="evaluation", content="", evaluation=evaluation)
+
+    if report:
+        append_message(session_id, role="assistant", kind="report", content="", report=report)
+    elif turn.phase.value == "follow_up":
+        append_message(session_id, role="assistant", kind="follow_up",
+                       content=turn.message, progress=turn.progress)
+    elif turn.question is not None:
+        append_message(session_id, role="assistant", kind="question",
+                       content=turn.question.question, question=question_to_dict(turn.question),
+                       progress=turn.progress)
+
+    persist(session_id, interviewer)
+
+    return {
+        "evaluation": evaluation,
+        "report": report,
+        "question": question_to_dict(turn.question),
+        "phase": turn.phase.value,
+        "progress": turn.progress,
+        "is_finished": turn.is_finished,
+    }
+
+
+@app.post("/api/interviews/{session_id}/skip")
+async def skip_question(session_id: str):
+    """跳过当前题目"""
+    interviewer = get_interviewer(session_id)
+    append_message(session_id, role="user", kind="answer", content="（跳过此题）")
+    turn = await interviewer.skip_question()
+
+    report = report_to_dict(turn.report)
+    if report:
+        append_message(session_id, role="assistant", kind="report", content="", report=report)
+    elif turn.question is not None:
+        append_message(session_id, role="assistant", kind="question",
+                       content=turn.question.question, question=question_to_dict(turn.question),
+                       progress=turn.progress)
+
+    persist(session_id, interviewer)
+    return {
+        "report": report,
+        "question": question_to_dict(turn.question),
+        "progress": turn.progress,
+        "is_finished": turn.is_finished,
+    }
+
+
+# ── API: 历史会话管理 ─────────────────────────────────────────
+
+@app.get("/api/interviews")
+async def list_interviews():
+    """侧边栏历史列表: 置顶优先，其余按时间倒序"""
+    metas = session_mgr.list_sessions(limit=100)
+    return {"sessions": [meta_to_dict(m) for m in metas]}
+
+
+@app.get("/api/interviews/{session_id}")
+async def get_interview(session_id: str):
+    """加载会话详情（历史查看 / 断点续聊）"""
+    record = session_mgr.load(session_id)
+    if not record:
+        raise HTTPException(404, "会话不存在")
+
+    can_resume = record.meta.status == "in_progress"
+    # 在内存 → 优先内存消息（可能比磁盘新）；否则用磁盘记录
+    if session_id in INTERVIEWERS:
+        interviewer = INTERVIEWERS[session_id]
+        messages = RECORD_MESSAGES.get(session_id) or record.messages
+        can_resume = not interviewer.state.is_finished
+    else:
+        messages = record.messages
+        # 未完成且有状态快照 → 可续聊（发消息时触发 get_interviewer 延迟重建）
+
+    return {
+        "meta": meta_to_dict(record.meta),
+        "messages": messages,
+        "can_resume": can_resume,
+        "mock": is_mock_mode(),
+    }
+
+
+@app.patch("/api/interviews/{session_id}")
+async def update_interview(session_id: str, payload: dict):
+    """重命名 / 置顶"""
+    if "custom_name" in payload:
+        name = (payload.get("custom_name") or "").strip()
+        if not name:
+            raise HTTPException(400, "名称不能为空")
+        if not session_mgr.rename_session(session_id, name):
+            raise HTTPException(404, "会话不存在")
+        return {"ok": True}
+
+    if "pinned" in payload:
+        if not session_mgr.set_pinned(session_id, bool(payload["pinned"])):
+            raise HTTPException(404, "会话不存在")
+        return {"ok": True}
+
+    raise HTTPException(400, "不支持的操作")
+
+
+@app.delete("/api/interviews/{session_id}")
+async def delete_interview(session_id: str):
+    """删除会话"""
+    INTERVIEWERS.pop(session_id, None)
+    RECORD_MESSAGES.pop(session_id, None)
+    if not session_mgr.delete_session(session_id):
+        raise HTTPException(404, "会话不存在")
+    return {"ok": True}
+
+
+@app.get("/api/health")
+async def health():
+    return {"ok": True, "provider": settings.llm_provider, "mock": is_mock_mode()}
