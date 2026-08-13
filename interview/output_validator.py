@@ -40,6 +40,17 @@ class ValidationLevel(str, Enum):
     FATAL = "fatal"
 
 
+# 级别严重度排序（OK < WARNING < ERROR < FATAL）。
+# 注意不能用枚举 value 字符串比较 —— "fatal" > "ok" 按字母序为 False，
+# 会导致数组子项校验的 ERROR/FATAL 无法传播到顶层结果。
+_LEVEL_RANK = {
+    ValidationLevel.OK: 0,
+    ValidationLevel.WARNING: 1,
+    ValidationLevel.ERROR: 2,
+    ValidationLevel.FATAL: 3,
+}
+
+
 @dataclass
 class ValidationResult:
     """校验结果"""
@@ -315,7 +326,7 @@ class OutputValidator:
                     sub = self._validate_object(item_schema, item)
                     result.errors.extend(f"[{i}] {e}" for e in sub.errors)
                     result.warnings.extend(f"[{i}] {w}" for w in sub.warnings)
-                    if sub.level.value > result.level.value:
+                    if _LEVEL_RANK[sub.level] > _LEVEL_RANK[result.level]:
                         result.level = sub.level
 
         return result
