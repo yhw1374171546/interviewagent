@@ -538,6 +538,24 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段十八：交付叙事（Docker 一键启动 + 博客 + 简历）
+
+### 2026-08-14 01:30 | 交付物补齐
+
+**做了什么**:
+1. **Docker 一键启动** — `Dockerfile`（python:3.13-slim，先 COPY requirements 利用层缓存，`--app-dir /app` 固定导入路径）+ `docker-compose.yml`（web 服务、`.env` 注入、`./data` 数据卷持久化）+ `.dockerignore`（排除 `.env`/`data`/缓存，绝不让密钥进镜像）。未配 Key 时自动降级 Mock 演示模式。
+2. **技术博客** — `docs/blog.md`《从 0 实现一个面试 Agent：混合架构、双引擎评分与容错设计》，按「混合架构→双引擎评分→容错→模型路由→可观测性→评测闭环→Streaming」复盘，重点讲中文关键词匹配的坑与流式重试的边界。
+3. **简历定稿** — `docs/resume.md`：可裁剪的 6 条 bullet + 量化指标速查表 + 高频追问预案（对应 interview_qa.md）。
+4. **README 更新** — Docker 一键启动小节、博客/简历链接、uvicorn 命令补 `--app-dir`（与铁律一致，避免 cwd 漂移）。
+
+**为什么这么做**: 代码能力再好，没有「一键跑起来」的路径和「讲得清」的叙事，对面试/评审的价值就打折。Docker 解决「环境劝退」，博客/简历把 18 个阶段的工程决策沉淀成可复述的表达。
+
+**实测**: 192 测试全绿、ruff 零错误、benchmark/demo 无回归、覆盖率门禁 80% 通过。（docker 环境本机未安装，Dockerfile/compose 为标准写法未做本地 build 验证，CI 只跑 pytest/benchmark/demo 不构建镜像。）
+
+**经验**: ① 交付物的本质是「降低别人的上手成本」——一键启动 + 清晰叙事比堆功能更重要；② `.dockerignore` 和 `env_file` 是 Docker 场景下的安全边界，密钥和数据必须排除在镜像之外；③ README 的启动命令要与实际验证过的命令保持一致（`--app-dir` 这种坑要同步到文档，否则用户照抄必踩）。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
