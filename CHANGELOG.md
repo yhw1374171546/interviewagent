@@ -393,6 +393,31 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段十：工程化（Git / CI / Lint）
+
+### 2026-08-13 20:00 | git 仓库初始化 + 8 个阶段性提交
+**做了什么**: `git init` + 按模块分组的 8 个提交（面试核心链路 → Agent 框架 → 可靠性层 → Web Demo → 测试与指标 → 文档 → 工程化）。  
+**安全**: 提交前扫描全仓密钥（`sk-`/`api_key`/`password` 模式）— 零命中；`.env`/`data/`/`logs/` 已 gitignore，仓库内仅含 `.env.example` 占位符模板。
+
+### 2026-08-13 20:10 | `pyproject.toml` + ruff 全仓清理
+**做了什么**: ruff（E/F/W/I/UP 规则集）首跑发现 **97 个问题**，逐类修复：
+- 79 个自动修复（未使用导入、导入排序、弃用 typing 写法、f-string 无占位符等）
+- 3 个 F821 真问题: `question_gen.py` 的 `JDAnalysis` 类型注解未导入 → 移入 TYPE_CHECKING
+- `question_bank.py` 重复导入（dataclasses 导了两次）
+- `skill_taxonomy.py` 模块中部导入 → 移到顶部
+- 循环变量 `field` 遮蔽 dataclasses 导入 → 改名 `field_name`
+- `UP042`（StrEnum）按项目统一 `str, Enum` 模式加入 ignore，并注释原因
+
+### 2026-08-13 20:20 | 修复预存在的坏测试 + 规则引擎跨行误判
+**问题 1**: `tests/test_agent.py` 的 JD 解析测试从未通过（项目此前从没跑过 pytest）——JD 文本太短不触发 LLM 兜底（阈值 50 字符），且 stub 返回结构是旧版设计（`required_skills` 字段，当前代码读的是 `missing_skills`）。重写测试匹配当前设计。  
+**问题 2（真 bug，测试暴露）**: 规则引擎判断「必须 vs 加分技能」用 ±50 字符上下文窗口，会把"了解 Docker 者优先"的影响扩散到同段的其他技能（Python 被误判为加分）。修复: **上下文窗口限定在当前行内**——真实 JD 每条要求独立成行，行内判断准确率更高。  
+**结果**: 22 个测试全部通过，CI 从此有真实回归保障。
+
+### 2026-08-13 20:30 | GitHub Actions CI
+**做了什么**: `.github/workflows/ci.yml` — push 自动跑 pytest（最小依赖安装，利用 SDK 懒加载）+ benchmark + demo 冒烟 + ruff lint。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
