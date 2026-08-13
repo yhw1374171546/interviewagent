@@ -437,6 +437,22 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段十二：真实 LLM 联调（DeepSeek v4-pro）
+
+### 2026-08-13 22:30 | Provider 配置 + 推理模型适配
+**做了什么**:
+1. **DeepSeek 接入** — DeepSeek API 是 OpenAI 兼容协议，`OpenAIClient` 自定义 `base_url` 即可使用（架构最初就支持多 Provider，无需改代码）。用 `/models` 接口实测账号可用模型为 `deepseek-v4-flash` / `deepseek-v4-pro`（`deepseek-chat` 别名在账号中不存在 — **模型名以 /models 接口返回为准，不要照抄文档**）。
+2. **推理模型适配（联调发现的真问题）** — v4-pro 是推理模型，先输出 `reasoning_content` 再作答：`max_tokens=10` 时 10 个 token 全部被推理过程吃掉，`content` 为空。原预算（评估 800/暖场 300）存在同样风险。全链路预算上调：评估 2000、暖场 600、JD 解析 2000、报告 3000、出题 3000。
+3. **全链路实测通过**（Web API + CLI 双路径）:
+   - 暖场自然个性化（提到岗位技能、题目数量、安抚话术）
+   - challenge 追问质量达到真实面试官水平："channel 阻塞或锁阻塞时，M 还会与 P 解绑吗？"
+   - 相关性检测真实生效: 跑题回答被判 3.6 分并指出"完全偏离题目"
+   - 报告优劣势分析有理有据
+
+**经验**: ① 真实模型联调是 Mock 永远替代不了的 — 推理模型的 content 空值问题只有真跑才能发现；② 适配推理模型的核心是"给足输出预算"（模型自己会 stop），而不是压缩 prompt；③ 换任何新 Provider 先查 /models 再定配置。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
