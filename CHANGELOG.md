@@ -521,6 +521,23 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段十七：测试补全（核心模块覆盖率 86% + CI 覆盖率门禁）
+
+### 2026-08-14 01:00 | 测试从 46 → 192 个，暴露并修复校验级别传播 bug
+
+**做了什么**:
+1. **清单 8 模块全补** — 按 next_steps 优先级补齐：`jd_parser`（词边界/兜底阈值/岗位猜测/malformed 降级）、`question_bank`（倒排索引/分层配额/去重/难度分层）、`question_gen`（五类配比/LLM 微调失败降级/补充/通识兜底）、`session_manager`（CRUD/置顶排序/重命名/对比/进度摘要）、`output_validator`（extract_json 各格式/截断修复/Schema 校验修正）、`code_judge`（输出比对回归/超时 kill/AST 拒绝）、`retry`（退避/熔断三态/降级链/协程判断）、`interviewer`（状态机跳转/序列化）。
+2. **core 基础设施补测** — `agent.py`（ReAct 主循环/工具调用/强制总结）、`orchestrator.py`（串行/并行/辩论）、`error_handler.py`（降级注册表/safe_execute/超时/健康检查）。
+3. **覆盖率工程化** — pyproject 配置 `--cov=interview --cov=core` 口径；CI 加 `pytest-cov` 与 `--cov-fail-under=80` 门禁；README 加覆盖率徽章 + 测试说明。
+
+**测试立刻发现真 bug** — `output_validator._validate_array` 用枚举的字符串 value 比较级别：`sub.level.value > result.level.value`。但 `"fatal" > "ok"` 按字母序为 **False**，导致数组子项校验出的 ERROR/FATAL 级别永远无法传播到顶层结果（缺失必填字段的数组项被判为 OK，不会触发重试）。修复：改用 `_LEVEL_RANK` 字典按严重度排序比较。
+
+**实测**: 46 → **192 个测试**全绿；核心模块（interview+core）覆盖率 44% → **86%**，CI 门禁 80% 通过；ruff 零错误；benchmark/demo 无回归。
+
+**经验**: ① 补测试的最大价值不在数字，而在暴露盲区——级别传播 bug 在日常使用中无感（output_validator 的数组校验路径不在面试主链路上），只有测试才触发；② 覆盖率必须明确口径：全仓库含 benchmark/demo/main/web/agents/tools/memory 等需真实 openai/chromadb 依赖的代码，无法离线覆盖，用「核心模块」口径（interview+core）才诚实且可达；③ 枚举级别比较是经典坑——str Enum 的成员比较走字符串语义，必须用显式的严重度排序表。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
