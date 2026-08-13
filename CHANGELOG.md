@@ -501,6 +501,26 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段十六：Streaming（SSE 流式报告 + 追问逐字显示）
+
+### 2026-08-14 00:30 | 报告 SSE 流式 + 流式路径补 usage_stats 计数
+
+**做了什么**:
+1. **流式入口补齐指标** — `core/llm.py` 新增 `stream_chat_with_retry()`，与 `chat_with_retry` 对称：完整消费后累计 `usage_stats`（prompt 用消息字符数估算、completion 用累计文本字符数估算，与 Mock 同口径）。抽取 `_record_usage`/`_estimate_prompt_tokens` 共享 helper，`chat_with_retry` 改为复用。重试语义：**只在首块到达前失败才重试**（连接/限流/超时），首块已发出后失败直接抛出——绝不重复输出已发文字。
+2. **报告拆成两段** — `report.py` 新增 `generate_stream()`：结构化字段（分数/等级/优劣势/结论）确定性计算（`_compute_stats`/`_verdict_from_score`/`_aggregate_evals`），改进建议这类长文本由 LLM 流式生成（`stream_chat_with_retry`），逐字推出。事件序列 `stats → delta* → done`。
+3. **状态机延迟报告** — `Interviewer` 新增 `defer_report` 标志 + `stream_report()`：Web 面试结束时不再内联生成报告（避免重复生成），改由 SSE 端点流式产出，`done` 前记录 report 阶段指标。
+4. **Web SSE 端点** — `GET /api/interviews/{id}/report/stream` 用 `StreamingResponse` 流式返回；`/answer`、`/skip` 增加 `stream_report` 标志（面试结束且报告未内联时置 true）。
+5. **前端** — `app.js` 用 `fetch` + `ReadableStream` 手动解析 SSE 帧，报告文字逐字 append 到"生成中"气泡，`done` 后重拉消息渲染完整报告卡；追问气泡走客户端打字机（历史回放不重放动画）。
+6. **FakeStreamLLM 单测** — 8 个新测试覆盖：流式 usage 计数、首块前重试（调用 2 次只计 1 次用量）、首块后失败不重试、`generate_stream` 事件序列/降级、`defer_report` 集成。
+
+**为什么这么做**: 真实 DeepSeek 报告生成实测 45s，用户干等无反馈；追问/报告文字逐字显示能显著提升"AI 在思考"的体感。更重要的是——`stream_chat` 此前完全不走 `usage_stats`，一旦接入会漏计 token/成本，可观测性数据失真。
+
+**实测**: ruff 零错误；54 个测试全绿（新增 8 个）；`node --check` 通过；benchmark/demo 无回归；mock 模式流式报告端到端可用。
+
+**经验**: ① 流式重试的边界是"首块"——首块前失败可安全重试，首块后失败重试会向客户端重复输出，这是流式与普通重试的本质区别；② 流式 API 通常不返回 usage，token 只能按字符数估算，口径要和 Mock 保持一致才能让 mock/真实两条路径的成本对比有意义；③ 报告这类"结构化 + 长文本"混合产物，拆成"确定性统计 + 流式叙事"最合适——JSON 不适合逐字流式，但纯叙事文字天然适合。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
