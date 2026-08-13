@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      # 只装测试所需的最小依赖（LLM SDK 懒加载，测试/基准不需要真实 API）
+      - name: Install dependencies
+        run: pip install pytest rich python-dotenv
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+      - name: Run benchmark
+        run: python benchmark.py
+
+      - name: Run demo (offline smoke test)
+        run: python demo.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint
+        run: ruff check .

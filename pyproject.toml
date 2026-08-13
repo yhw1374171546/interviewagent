@@ -1,0 +1,45 @@
+[project]
+name = "interview-agent"
+version = "1.0.0"
+description = "AI 驱动的全真模拟面试 Agent — JD 解析、题库检索、双引擎评分、沙箱判题、DeepSeek 风格 Web Demo"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.50.0",
+    "anthropic>=0.40.0",
+    "tiktoken>=0.7.0",
+    "httpx>=0.27.0",
+    "chromadb>=0.5.0",
+    "rich>=13.0.0",
+    "python-dotenv>=1.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "python-multipart>=0.0.9",
+    "pypdf>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+]
+
+[tool.ruff]
+# 代码规范: 行宽 100，与项目现有风格一致
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle 错误
+    "F",   # pyflakes（未使用导入/未定义变量 — 最重要）
+    "W",   # pycodestyle 警告
+    "I",   # isort 导入排序
+    "UP",  # pyupgrade 现代化写法
+]
+ignore = [
+    "E501",   # 行宽交给 formatter
+    "UP042",  # 项目统一使用 `class X(str, Enum)` 模式（枚举 .value 参与 JSON 序列化）
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
