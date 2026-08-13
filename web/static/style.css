@@ -125,6 +125,34 @@ body {
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-primary:disabled { background: #a8b4f5; cursor: not-allowed; }
 
+.btn-history {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn-history:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 聊天区空状态（未选中会话时的欢迎占位） */
+.empty-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-dim);
+}
+.empty-chat .empty-icon { font-size: 40px; }
+.empty-chat .empty-title { font-size: 17px; font-weight: 600; color: var(--text-main); }
+.empty-chat .empty-hint { font-size: 13px; line-height: 1.8; text-align: center; }
+
 .error-msg {
   margin-top: 14px;
   color: var(--danger);

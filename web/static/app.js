@@ -33,6 +33,23 @@ function showChat() {
   $("#landing").hidden = true;
   $("#chat-app").hidden = false;
   loadHistory();
+  // 未选中会话 → 显示欢迎占位（DeepSeek 式: 进入即见侧边栏历史）
+  if (!state.currentSession) {
+    renderEmptyState();
+    updateComposer();
+  }
+}
+
+function renderEmptyState() {
+  const container = $("#messages");
+  container.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "empty-chat";
+  el.innerHTML = `
+    <div class="empty-icon">🎙️</div>
+    <div class="empty-title">欢迎使用 AI 面试模拟</div>
+    <div class="empty-hint">👈 点击左侧历史记录继续之前的面试<br>或点击「＋ 开始新面试」开启新对话</div>`;
+  container.appendChild(el);
 }
 
 /* ═══════════════ 落地页逻辑 ═══════════════ */
@@ -473,8 +490,16 @@ $("#send-btn").addEventListener("click", sendAnswer);
 $("#skip-btn").addEventListener("click", skipQuestion);
 
 function updateComposer() {
-  // 仅进行中的会话可输入；已结束或未选中 → 禁用
-  const disabled = !state.currentSession || !state.canResume;
+  const composer = document.querySelector(".composer");
+  // 未选中任何会话 → 整个输入区隐藏（空状态页）
+  if (!state.currentSession) {
+    composer.hidden = true;
+    return;
+  }
+  composer.hidden = false;
+
+  // 仅进行中的会话可输入；已结束 → 禁用
+  const disabled = !state.canResume;
   answerInput.disabled = disabled;
   $("#skip-btn").hidden = disabled;
   $("#send-btn").disabled = disabled;
@@ -597,4 +622,24 @@ $("#new-interview-btn").addEventListener("click", () => {
   showLanding();
 });
 
-showLanding();
+// 落地页「查看历史面试」入口 — 直接进入聊天视图点历史记录
+$("#view-history-btn").addEventListener("click", showChat);
+
+async function init() {
+  // DeepSeek 式入口: 有历史会话 → 直接进聊天视图（历史随时可点）；
+  // 无历史 → 落地页（上传简历/粘贴 JD）
+  try {
+    const resp = await fetch("/api/interviews");
+    const data = await resp.json();
+    if (data.sessions && data.sessions.length) {
+      showChat();
+    } else {
+      showLanding();
+    }
+  } catch (e) {
+    console.error("初始化失败:", e);
+    showLanding();
+  }
+}
+
+init();
