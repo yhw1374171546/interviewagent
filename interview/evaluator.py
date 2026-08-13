@@ -181,6 +181,8 @@ class AnswerEvaluator:
         self,
         question: InterviewQuestion,
         answer: str,
+        history_context: str = "",
+        memory_hints: list[str] | None = None,
     ) -> EvaluationResult:
         """
         评估回答 — 带完整边界防护。
@@ -188,6 +190,14 @@ class AnswerEvaluator:
         确定性拦截链（全部 0 API 调用，按顺序短路）:
             空回答 → 超短 → 重复字符垃圾 → 复读题目 → ...
         之后才是 关键词匹配 + LLM 深度评估（含降级兜底）。
+
+        Args:
+            question: 当前题目
+            answer: 面试者回答
+            history_context: 前几轮问答摘要（轮内记忆）— 注入 LLM 深度评估，
+                使追问能引用面试者之前的回答（"翻旧账"能力）
+            memory_hints: 跨会话记忆检索出的历史弱项 — 注入同样的上下文，
+                让 LLM 对候选人之前的薄弱方向重点追问
         """
         # ── 边界 1: 空回答 ──
         if not answer.strip():
@@ -266,7 +276,11 @@ class AnswerEvaluator:
 
         # ── 阶段 2: LLM 深度评估 ──
         if self.llm:
-            depth, structure, llm_data = await self._llm_deep_eval(question, answer)
+            depth, structure, llm_data = await self._llm_deep_eval(
+                question, answer,
+                history_context=history_context,
+                memory_hints=memory_hints,
+            )
         else:
             depth = self._rate_from_match(match_rate or 0.0, 2, 8)
             structure = 5
@@ -407,6 +421,8 @@ class AnswerEvaluator:
         self,
         question: InterviewQuestion,
         answer: str,
+        history_context: str = "",
+        memory_hints: list[str] | None = None,
     ) -> tuple[int, int, dict]:
         """LLM 深度评估（只评估机器做不了的）"""
         prompt = LLM_DEEP_EVAL_PROMPT.format(
@@ -414,6 +430,20 @@ class AnswerEvaluator:
             expected_points=", ".join(question.expected_points or ["无"]),
             answer=answer[:2500],
         )
+
+        # 记忆注入: 轮内摘要 + 跨会话弱项（均附加在模板之后，不影响原格式）
+        if history_context:
+            prompt += (
+                f"\n\n## 面试历史（前几轮表现）\n{history_context}\n\n"
+                "请结合历史表现: 候选人之前答得好的点可以少问，"
+                "之前暴露的弱点要重点追问验证。"
+            )
+        if memory_hints:
+            hint_text = "; ".join(memory_hints)
+            prompt += (
+                f"\n\n## 历史弱项（跨会话记忆）\n{hint_text}\n\n"
+                "如果本题涉及这些方向，请在追问中重点验证候选人是否补足了短板。"
+            )
 
         try:
             response = await self.llm.chat_with_retry(

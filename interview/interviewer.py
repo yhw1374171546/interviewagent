@@ -30,6 +30,12 @@ from core.llm import LLMClient, Message, Role
 
 from .evaluator import AnswerEvaluator, EvaluationResult, FollowUpDecision
 from .jd_parser import JDAnalysis, JDParser
+from .memory_context import (
+    InterviewMemory,
+    MemoryEntry,
+    build_history_summary,
+    remember_answer_async,
+)
 from .question_bank import InterviewQuestion, QuestionType
 from .question_gen import InterviewPlan, QuestionGenerator
 from .report import InterviewReport, ReportGenerator
@@ -84,6 +90,9 @@ class InterviewState:
     # 状态
     phase: InterviewPhase = InterviewPhase.INIT
     interview_started: bool = False
+
+    # 跨会话记忆: 历史弱项提示（面试开始时检索，注入评估上下文）
+    memory_hints: list[str] = field(default_factory=list)
 
     @property
     def current_question_num(self) -> int:
@@ -169,10 +178,16 @@ class Interviewer:
         llm_client: LLMClient,
         total_questions: int = 8,
         max_follow_ups: int = 3,
+        memory: InterviewMemory | None = None,
     ):
         self.llm = llm_client
         self.total_questions = total_questions
         self.max_follow_ups = max_follow_ups
+
+        # 跨会话记忆（可选 — ChromaDB 不可用时自动降级进程内存储）
+        self.memory = memory if memory is not None else InterviewMemory()
+        # 会话 ID（Web 层在会话创建后回填，用于记忆元数据标记）
+        self.session_id = ""
 
         # 子模块
         self.jd_parser = JDParser(llm_client)
@@ -201,6 +216,12 @@ class Interviewer:
         # 1. 解析 JD
         self.state.phase = InterviewPhase.INIT
         self.state.jd_analysis = await self.jd_parser.parse(jd_text)
+
+        # 1.5 跨会话记忆: 检索与当前 JD 技能相关的历史弱项
+        #      （无历史或 ChromaDB 不可用时返回空列表，不影响主流程）
+        self.state.memory_hints = self.memory.recall_weaknesses(
+            self.state.jd_analysis.all_skills
+        )
 
         # 2. 生成题目
         self.state.plan = await self.question_gen.generate(
@@ -289,9 +310,16 @@ class Interviewer:
         if not question:
             return await self.next_question()
 
-        # 评估
+        # 评估 — 注入轮内记忆（前几轮摘要）与跨会话记忆（历史弱项）
+        # 使追问能"翻旧账"、对历史短板重点验证
         self.state.phase = InterviewPhase.EVALUATE
-        evaluation = await self.evaluator.evaluate(question, answer)
+        history_context = build_history_summary(self.state.answers)
+        evaluation = await self.evaluator.evaluate(
+            question,
+            answer,
+            history_context=history_context,
+            memory_hints=self.state.memory_hints,
+        )
 
         # 记录
         self.state.answers.append({
@@ -300,6 +328,18 @@ class Interviewer:
             "evaluation": evaluation,
             "is_follow_up": self.state.current_follow_up_count > 0,
         })
+
+        # 写入跨会话记忆（异步、容错、不阻塞面试主流程）
+        # 技能标签用题目类别近似（InterviewQuestion 无 tags 字段）
+        remember_answer_async(self.memory, MemoryEntry(
+            question=question.question,
+            answer=answer,
+            score=evaluation.total_score,
+            category=question.category,
+            question_type=question.type.value,
+            skills=[question.category],
+            session_id=self.session_id,
+        ))
 
         # 判断是否需要追问
         should_follow_up = (
@@ -407,13 +447,19 @@ class Interviewer:
         })
 
     @classmethod
-    def from_dict(cls, data: dict, llm_client: LLMClient) -> Interviewer:
+    def from_dict(
+        cls,
+        data: dict,
+        llm_client: LLMClient,
+        memory: InterviewMemory | None = None,
+    ) -> Interviewer:
         """
         从状态快照重建 Interviewer（服务重启恢复）。
 
         Args:
             data: to_dict() 生成的快照
             llm_client: LLM 客户端
+            memory: 跨会话记忆实例（不参与序列化，由调用方注入）
 
         Returns:
             恢复到快照时刻的 Interviewer
@@ -422,6 +468,7 @@ class Interviewer:
             llm_client=llm_client,
             total_questions=data.get("total_questions", 8),
             max_follow_ups=data.get("max_follow_ups", 3),
+            memory=memory,
         )
 
         s = data.get("state", {})
@@ -457,6 +504,7 @@ class Interviewer:
         state.max_follow_ups = s.get("max_follow_ups", 3)
         state.phase = InterviewPhase(s.get("phase", "init"))
         state.interview_started = s.get("interview_started", False)
+        state.memory_hints = s.get("memory_hints", [])
 
         # 当前题目
         cur_q = s.get("current_question")

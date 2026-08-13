@@ -41,6 +41,7 @@ from config import settings
 from core.llm import LLMClient
 from core.mock_llm import MockLLMClient
 from interview.interviewer import Interviewer
+from interview.memory_context import InterviewMemory
 from interview.session_manager import SessionManager
 from utils.logger import get_logger
 
@@ -103,6 +104,11 @@ session_mgr = SessionManager(
 )
 # 活跃会话注册表: session_id → Interviewer（内存态）
 INTERVIEWERS: dict[str, Interviewer] = {}
+
+# 跨会话记忆（ChromaDB 不可用时自动降级进程内存储）
+shared_memory = InterviewMemory(
+    persist_dir=str(settings.project_root / "data" / "memory")
+)
 
 
 # ── 工具函数 ───────────────────────────────────────────────────
@@ -212,7 +218,10 @@ def get_interviewer(session_id: str) -> Interviewer:
     if not record.interviewer_state:
         raise HTTPException(500, "会话状态快照缺失，无法恢复")
 
-    interviewer = Interviewer.from_dict(record.interviewer_state, get_llm())
+    interviewer = Interviewer.from_dict(
+        record.interviewer_state, get_llm(), memory=shared_memory
+    )
+    interviewer.session_id = session_id
     INTERVIEWERS[session_id] = interviewer
     # 内存聊天记录以磁盘为准（服务重启后 RECORD_MESSAGES 为空）
     RECORD_MESSAGES.setdefault(session_id, list(record.messages))
@@ -267,7 +276,7 @@ async def create_interview(
         raise HTTPException(400, "内容太短，请提供完整的简历或 JD")
 
     # 创建 Interviewer 并开始
-    interviewer = Interviewer(get_llm())
+    interviewer = Interviewer(get_llm(), memory=shared_memory)
     try:
         turn_start = await interviewer.start(content)
         warmup_text = turn_start.message
@@ -285,6 +294,7 @@ async def create_interview(
         tags=interviewer.state.jd_analysis.all_skills[:8],
     )
     session_id = record.meta.session_id
+    interviewer.session_id = session_id  # 回填会话 ID（记忆元数据标记用）
     session_mgr.save(record)  # 初始化磁盘文件（persist 依赖 load）
     INTERVIEWERS[session_id] = interviewer
     RECORD_MESSAGES[session_id] = []
