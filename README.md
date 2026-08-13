@@ -1,6 +1,7 @@
 # 面试模拟 Agent 🎙️
 
 [![CI](https://github.com/yhw1374171546/interviewagent/actions/workflows/ci.yml/badge.svg)](https://github.com/yhw1374171546/interviewagent/actions)
+[![coverage](https://img.shields.io/badge/coverage-86%25-brightgreen)](https://github.com/yhw1374171546/interviewagent/actions)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
@@ -244,6 +245,19 @@ uvicorn web.server:app --reload
 
 评测驱动了真实修复：高分回答曾被系统性低估（关键词引擎中文匹配缺陷），
 eval→fix→re-eval 闭环后 MAE 下降 37%。
+
+## 测试与覆盖率
+
+```bash
+python -m pytest tests/ -q                    # 192 个测试，全离线可跑（Mock/FakeLLM）
+python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
+```
+
+- **192 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
+- **核心模块覆盖率 86%**（`interview/` 面试链路 + `core/` LLM 基础设施层），CI 以 80% 为门禁
+- 覆盖：评估器健壮性、记忆、可观测性、LLM-as-judge 评测、流式输出（SSE）、
+  JD 解析、题库检索、题目生成、状态机、会话管理、输出校验、代码判题、重试熔断、
+  ReAct Agent、多 Agent 编排、异常处理
 
 ## 面试准备
 

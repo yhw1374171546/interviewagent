@@ -20,11 +20,12 @@ jobs:
 
       # 只装测试所需的最小依赖（LLM SDK 懒加载，测试/基准不需要真实 API）
       # pytest-asyncio: test_agent.py 使用 @pytest.mark.asyncio 标记
+      # pytest-cov: 覆盖率门禁（核心模块 interview + core，阈值 80%）
       - name: Install dependencies
-        run: pip install pytest pytest-asyncio rich python-dotenv
+        run: pip install pytest pytest-asyncio pytest-cov rich python-dotenv
 
-      - name: Run tests
-        run: python -m pytest tests/ -v
+      - name: Run tests (with coverage gate)
+        run: python -m pytest tests/ -v --cov=interview --cov=core --cov-fail-under=80
 
       - name: Run benchmark
         run: python benchmark.py

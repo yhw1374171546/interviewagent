@@ -43,3 +43,16 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# 覆盖率口径: 面试核心链路（interview/）+ LLM 基础设施层（core/）。
+# 演示脚本（benchmark/demo/main/web）与早期框架（agents/tools/memory）不计入，
+# 其中需要真实 openai/chromadb 依赖，无法离线覆盖。
+source = ["interview", "core"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
