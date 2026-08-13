@@ -19,8 +19,9 @@ jobs:
           cache: pip
 
       # 只装测试所需的最小依赖（LLM SDK 懒加载，测试/基准不需要真实 API）
+      # pytest-asyncio: test_agent.py 使用 @pytest.mark.asyncio 标记
       - name: Install dependencies
-        run: pip install pytest rich python-dotenv
+        run: pip install pytest pytest-asyncio rich python-dotenv
 
       - name: Run tests
         run: python -m pytest tests/ -v
