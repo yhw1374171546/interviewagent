@@ -165,12 +165,23 @@ agent/
 ```bash
 cd agent
 pip install -r requirements.txt
-cp .env.example .env          # 填写 API Key
+cp .env.example .env          # 填写 API Key（支持 DeepSeek/OpenAI/Claude/Ollama，见下方）
 python main.py                # 交互式模拟面试 (CLI)
 python main.py --test         # 演示模式（内置 JD + 预置回答）
 python main.py --questions 10 # 自定义题目数量
 python demo.py                # 工程能力演示（无需 API Key）
 ```
+
+### LLM Provider 配置
+
+| Provider | 配置 | 说明 |
+|----------|------|------|
+| **DeepSeek**（推荐国内用户） | `LLM_PROVIDER=openai` + `LLM_BASE_URL=https://api.deepseek.com/v1` + `LLM_MODEL=deepseek-chat` + `OPENAI_API_KEY=sk-xxx` | OpenAI 兼容协议，无需额外适配 |
+| OpenAI | `LLM_PROVIDER=openai` + `LLM_MODEL=gpt-4o` | 官方 API |
+| Claude | `LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY=sk-ant-xxx` | 原生 Prompt Caching |
+| Ollama 本地 | `LLM_BASE_URL=http://localhost:11434/v1` + `LLM_MODEL=qwen2.5:7b` | 免费、离线、隐私 |
+
+无 Key 时全链路自动降级 Mock LLM（演示模式）。
 
 ### Web Demo（推荐体验方式）
 
