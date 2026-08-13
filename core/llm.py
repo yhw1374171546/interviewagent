@@ -118,6 +118,19 @@ class LLMClient(ABC):
         self.base_url = base_url
         self._retry_handler = None  # 延迟初始化
         self._cache_config = PromptCacheConfig()
+        # 调用级可观测性: 所有经 chat_with_retry 的调用累计到此
+        # （token 来自 API 返回的 usage，mock 为字符数/4 估算）
+        self.usage_stats = {
+            "call_count": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_latency_sec": 0.0,
+        }
+
+    def reset_usage_stats(self) -> None:
+        """清零用量统计"""
+        for key in self.usage_stats:
+            self.usage_stats[key] = 0 if key != "total_latency_sec" else 0.0
 
     @abstractmethod
     async def chat(
@@ -228,13 +241,24 @@ class LLMClient(ABC):
 
         # 注意: 用关键字参数调用 chat — 兼容 **kwargs 签名的 LLM 实现
         # （如测试 Fake/第三方包装），位置参数会直接 TypeError
-        return await with_retry(
+        import time as _time
+
+        t0 = _time.perf_counter()
+        response = await with_retry(
             fn=lambda: self.chat(
                 messages=messages, tools=tools,
                 temperature=temperature, max_tokens=max_tokens,
             ),
             config=config,
         )
+
+        # 调用级指标: 延迟 + token（供会话级聚合与成本估算）
+        self.usage_stats["call_count"] += 1
+        self.usage_stats["total_latency_sec"] += _time.perf_counter() - t0
+        usage = getattr(response, "usage", None) or {}
+        self.usage_stats["prompt_tokens"] += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0) or 0
+        self.usage_stats["completion_tokens"] += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0) or 0
+        return response
 
     async def stream_chat(
         self,

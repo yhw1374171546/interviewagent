@@ -6,11 +6,30 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+def _load_pricing() -> dict:
+    """模型价格表（元/百万 token，[输入, 输出]），可用 LLM_PRICING 环境变量覆盖"""
+    defaults = {
+        "deepseek-v4-flash": [0.2, 1.0],
+        "deepseek-v4-pro": [1.0, 4.0],
+        "gpt-4o": [17.8, 71.2],
+        "gpt-4o-mini": [1.1, 4.4],
+        "claude-sonnet-5": [21.4, 107.0],
+    }
+    override = os.getenv("LLM_PRICING")
+    if override:
+        try:
+            defaults.update(json.loads(override))
+        except json.JSONDecodeError:
+            pass
+    return defaults
 
 load_dotenv()
 
@@ -30,6 +49,11 @@ class Settings:
     llm_base_url: str | None = os.getenv("LLM_BASE_URL") or None
     llm_temperature: float = 0.7
     llm_max_tokens: int = 4096
+
+    # 模型价格表 (元 / 百万 token) — 用于成本估算（可观测性指标）。
+    # 价格会随供应商调整，通过环境变量 JSON 覆盖，例如:
+    #   LLM_PRICING='{"deepseek-v4-flash": [0.2, 1.0]}'
+    llm_pricing: dict = field(default_factory=lambda: _load_pricing())
 
     # ── Anthropic ────────────────────────────────────
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")

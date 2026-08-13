@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 
+from config import settings
 from core.llm import LLMClient, Message, Role
 from utils.logger import get_logger
 
@@ -103,6 +104,9 @@ class InterviewState:
     # evaluate / report — evaluate 为累计值，evaluate_count 为次数
     timings: dict[str, float] = field(default_factory=dict)
     evaluate_count: int = 0
+
+    # 调用级指标（可观测性）: 每阶段 {latency, prompt_tokens, completion_tokens, model}
+    metrics: dict[str, dict] = field(default_factory=dict)
 
     @property
     def current_question_num(self) -> int:
@@ -213,6 +217,30 @@ class Interviewer:
         # 会话状态
         self.state = InterviewState(max_follow_ups=max_follow_ups)
 
+    # ── 可观测性辅助 ─────────────────────────────────────
+
+    def _llm_snapshot(self, client: LLMClient) -> dict:
+        """取某个 LLM 客户端的累计用量快照"""
+        stats = getattr(client, "usage_stats", None)
+        return dict(stats) if stats else {}
+
+    def _record_stage(
+        self,
+        stage: str,
+        t0: float,
+        client: LLMClient,
+        before: dict,
+    ) -> None:
+        """记录一个阶段的延迟与 token 消耗（增量）"""
+        after = self._llm_snapshot(client)
+        self.state.metrics[stage] = {
+            "latency": round(time.perf_counter() - t0, 2),
+            "prompt_tokens": after.get("prompt_tokens", 0) - before.get("prompt_tokens", 0),
+            "completion_tokens": after.get("completion_tokens", 0) - before.get("completion_tokens", 0),
+            "model": getattr(client, "model", ""),
+        }
+        self.state.timings[stage] = round(time.perf_counter() - t0, 2)
+
     # ── Public API ──────────────────────────────────────
 
     async def start(self, jd_text: str) -> TurnResult:
@@ -231,8 +259,9 @@ class Interviewer:
         # 1. 解析 JD
         self.state.phase = InterviewPhase.INIT
         t0 = time.perf_counter()
+        snap_before = self._llm_snapshot(self.llm)
         self.state.jd_analysis = await self.jd_parser.parse(jd_text)
-        self.state.timings["jd_parse"] = round(time.perf_counter() - t0, 2)
+        self._record_stage("jd_parse", t0, self.llm, snap_before)
 
         # 1.5 跨会话记忆: 检索与当前 JD 技能相关的历史弱项
         #      （无历史或 ChromaDB 不可用时返回空列表，不影响主流程）
@@ -244,13 +273,14 @@ class Interviewer:
         #        串行会多等一个推理模型的延迟，实测可省 8-15s）
         self.state.phase = InterviewPhase.WARMUP
         t0 = time.perf_counter()
+        snap_before = self._llm_snapshot(self.llm)
         plan_task = asyncio.create_task(self.question_gen.generate(
             self.state.jd_analysis,
             total_questions=self.total_questions,
         ))
         warmup_task = asyncio.create_task(self._generate_warmup())
         self.state.plan, warmup = await asyncio.gather(plan_task, warmup_task)
-        self.state.timings["question_gen+warmup"] = round(time.perf_counter() - t0, 2)
+        self._record_stage("question_gen+warmup", t0, self.llm, snap_before)
         self.state.interview_started = True
 
         return TurnResult(
@@ -272,11 +302,12 @@ class Interviewer:
             # 所有题目已答完 → 生成报告
             self.state.phase = InterviewPhase.CONCLUSION
             t0 = time.perf_counter()
+            snap_before = self._llm_snapshot(self.llm_strong)
             report = await self.report_gen.generate(
                 jd=self.state.jd_analysis,
                 answers=self.state.answers,
             )
-            self.state.timings["report"] = round(time.perf_counter() - t0, 2)
+            self._record_stage("report", t0, self.llm_strong, snap_before)
             # 性能指标日志（面试复盘/成本观测用）
             logger.info(
                 f"面试阶段耗时: {self.state.timings} | "
@@ -342,6 +373,7 @@ class Interviewer:
         self.state.phase = InterviewPhase.EVALUATE
         history_context = build_history_summary(self.state.answers)
         t0 = time.perf_counter()
+        snap_before = self._llm_snapshot(self.llm)
         evaluation = await self.evaluator.evaluate(
             question,
             answer,
@@ -351,6 +383,17 @@ class Interviewer:
         self.state.timings["evaluate"] = round(
             self.state.timings.get("evaluate", 0) + time.perf_counter() - t0, 2,
         )
+        # 评估阶段指标为多次调用累计
+        after = self._llm_snapshot(self.llm)
+        prev = self.state.metrics.get("evaluate", {
+            "latency": 0, "prompt_tokens": 0, "completion_tokens": 0,
+        })
+        self.state.metrics["evaluate"] = {
+            "latency": round(prev["latency"] + time.perf_counter() - t0, 2),
+            "prompt_tokens": prev["prompt_tokens"] + after.get("prompt_tokens", 0) - snap_before.get("prompt_tokens", 0),
+            "completion_tokens": prev["completion_tokens"] + after.get("completion_tokens", 0) - snap_before.get("completion_tokens", 0),
+            "model": getattr(self.llm, "model", ""),
+        }
         self.state.evaluate_count += 1
 
         # 记录
@@ -463,6 +506,37 @@ class Interviewer:
         """重置面试会话"""
         self.state = InterviewState(max_follow_ups=self.max_follow_ups)
 
+    def session_cost_estimate(self) -> dict:
+        """
+        本场面试的 token 汇总与成本估算（可观测性）。
+
+        价格表来自 settings.llm_pricing（元/百万 token），
+        可按模型分别计价（模型路由下 flash 与 pro 成本差异显著）。
+        """
+        total_in = 0
+        total_out = 0
+        per_model: dict[str, list[int]] = {}
+        for m in self.state.metrics.values():
+            pin = m.get("prompt_tokens", 0)
+            pout = m.get("completion_tokens", 0)
+            total_in += pin
+            total_out += pout
+            model = m.get("model", "")
+            per_model.setdefault(model, [0, 0])
+            per_model[model][0] += pin
+            per_model[model][1] += pout
+
+        cost = 0.0
+        for model, (pin, pout) in per_model.items():
+            price = settings.llm_pricing.get(model, [0, 0])
+            cost += pin / 1_000_000 * price[0] + pout / 1_000_000 * price[1]
+
+        return {
+            "prompt_tokens": total_in,
+            "completion_tokens": total_out,
+            "cost_yuan": round(cost, 4),
+        }
+
     # ── 状态序列化（Web 断点恢复）───────────────────────
 
     def to_dict(self) -> dict:
@@ -538,6 +612,7 @@ class Interviewer:
         state.interview_started = s.get("interview_started", False)
         state.memory_hints = s.get("memory_hints", [])
         state.timings = s.get("timings", {})
+        state.metrics = s.get("metrics", {})
         state.evaluate_count = s.get("evaluate_count", 0)
 
         # 当前题目

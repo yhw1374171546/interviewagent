@@ -241,6 +241,18 @@ def get_interviewer(session_id: str) -> Interviewer:
     return interviewer
 
 
+def append_metrics_message(session_id: str, interviewer: Interviewer) -> None:
+    """面试结束时追加本场统计消息（延迟/token/成本 — 可观测性）"""
+    cost = interviewer.session_cost_estimate()
+    append_message(session_id, role="assistant", kind="metrics", metrics={
+        "timings": interviewer.state.timings,
+        "prompt_tokens": cost["prompt_tokens"],
+        "completion_tokens": cost["completion_tokens"],
+        "cost_yuan": cost["cost_yuan"],
+        "evaluate_count": interviewer.state.evaluate_count,
+    })
+
+
 def persist(session_id: str, interviewer: Interviewer) -> None:
     """保存会话: 聊天记录 + 状态快照 + 元数据"""
     record = session_mgr.load(session_id)
@@ -353,6 +365,7 @@ async def submit_answer(session_id: str, payload: dict):
 
     if report:
         append_message(session_id, role="assistant", kind="report", content="", report=report)
+        append_metrics_message(session_id, interviewer)
     elif turn.phase.value == "follow_up":
         append_message(session_id, role="assistant", kind="follow_up",
                        content=turn.message, progress=turn.progress)
@@ -383,6 +396,7 @@ async def skip_question(session_id: str):
     report = report_to_dict(turn.report)
     if report:
         append_message(session_id, role="assistant", kind="report", content="", report=report)
+        append_metrics_message(session_id, interviewer)
     elif turn.question is not None:
         append_message(session_id, role="assistant", kind="question",
                        content=turn.question.question, question=question_to_dict(turn.question),
@@ -404,6 +418,50 @@ async def list_interviews():
     """侧边栏历史列表: 置顶优先，其余按时间倒序"""
     metas = session_mgr.list_sessions(limit=100)
     return {"sessions": [meta_to_dict(m) for m in metas]}
+
+
+@app.get("/api/stats")
+async def global_stats():
+    """
+    全局用量统计（可观测性）— 聚合所有已完成面试的
+    token 消耗、成本估算、调用耗时。数据来自会话快照，随时可查。
+    """
+    sessions = session_mgr.list_sessions(limit=100)
+    total_prompt = 0
+    total_completion = 0
+    total_cost = 0.0
+    total_latency = 0.0
+    completed = 0
+
+    for meta in sessions:
+        record = session_mgr.load(meta.session_id)
+        if not record or meta.status != "completed":
+            continue
+        metrics = record.interviewer_state.get("state", {}).get("metrics", {})
+        if not metrics:
+            continue
+        completed += 1
+        for m in metrics.values():
+            total_prompt += m.get("prompt_tokens", 0)
+            total_completion += m.get("completion_tokens", 0)
+            total_latency += m.get("latency", 0)
+
+        # 成本估算: 按阶段模型分别计价
+        for m in metrics.values():
+            price = settings.llm_pricing.get(m.get("model", ""), [0, 0])
+            total_cost += (
+                m.get("prompt_tokens", 0) / 1_000_000 * price[0]
+                + m.get("completion_tokens", 0) / 1_000_000 * price[1]
+            )
+
+    return {
+        "completed_sessions": completed,
+        "total_prompt_tokens": total_prompt,
+        "total_completion_tokens": total_completion,
+        "total_tokens": total_prompt + total_completion,
+        "total_latency_sec": round(total_latency, 1),
+        "estimated_cost_yuan": round(total_cost, 4),
+    }
 
 
 @app.get("/api/interviews/{session_id}")

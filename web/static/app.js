@@ -351,6 +351,10 @@ function appendMessage(m) {
       wrapper.appendChild(reportCard(m.report));
       break;
 
+    case "metrics":
+      wrapper.appendChild(metricsCard(m.metrics));
+      break;
+
     default:
       wrapper.appendChild(assistantBubble(m.content || ""));
   }
@@ -452,6 +456,26 @@ function reportCard(r) {
         <h4>💡 改进建议</h4>
         <div class="report-advice">${r.improvement_advice}</div>
       </div>` : ""}`;
+  return card;
+}
+
+function metricsCard(m) {
+  const card = document.createElement("div");
+  card.className = "metrics-card";
+  const total = (m.prompt_tokens || 0) + (m.completion_tokens || 0);
+  const t = m.timings || {};
+  const totalSec = Object.values(t).reduce((a, b) => a + b, 0);
+  card.innerHTML = `
+    <div class="metrics-title">📊 本场统计</div>
+    <div class="metrics-row">
+      <span>⏱ 总耗时 ${totalSec.toFixed(0)}s</span>
+      <span>🔤 Token ${total.toLocaleString()}</span>
+      <span>💰 约 ¥${(m.cost_yuan || 0).toFixed(3)}</span>
+    </div>
+    <div class="metrics-detail">
+      解析 ${t.jd_parse || 0}s · 出题+暖场 ${t["question_gen+warmup"] || 0}s ·
+      评估 ${t.evaluate || 0}s · 报告 ${t.report || 0}s
+    </div>`;
   return card;
 }
 
