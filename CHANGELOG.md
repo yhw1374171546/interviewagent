@@ -486,6 +486,21 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段十五：可观测性（调用级延迟/token/成本）
+
+### 2026-08-13 24:20 | 指标链路落地
+**做了什么**: 把「阶段计时」升级为完整的调用级可观测体系：
+1. **LLMClient.usage_stats** — `chat_with_retry` 统一入口累计每次调用的延迟 + prompt/completion token（来自 API usage 字段，mock 按字符数估算）
+2. **会话级阶段指标** — Interviewer 每个阶段（jd_parse/出题+暖场/evaluate/report）记录 `{latency, prompt_tokens, completion_tokens, model}`，随状态快照持久化
+3. **成本估算** — `session_cost_estimate()` 按模型分别计价（模型路由下 flash 与 pro 价格差异大），价格表 `settings.llm_pricing` 支持环境变量覆盖
+4. **Web 展示** — 面试结束自动追加「本场统计」卡片（耗时/Token/成本/阶段明细）；`GET /api/stats` 聚合全局用量
+
+**实测数据**（真实 DeepSeek 8 题面试）: 输入 29.4K + 输出 32.6K tokens、成本 ¥0.049、阶段耗时（规则解析 0s / 出题+暖场 21.7s / 评估 310s / 报告 45s）。  
+**指标立即体现价值**: 评估阶段 310s（平均 ~20s/次）与之前实测的 5.4s 差异巨大，日志确认无重试 — 是 API 端延迟波动。没有这套指标，这类问题完全不可见。  
+**经验**: 可观测性不是锦上添花 — 它是成本优化和性能治理的前提。"测不到就优化不了"，LLM 应用的延迟/token/成本三件套应该从第一天就埋点。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
