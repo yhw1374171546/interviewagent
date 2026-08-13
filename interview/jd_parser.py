@@ -180,7 +180,7 @@ class JDParser:
         """LLM 兜底解析"""
         prompt = LLM_FALLBACK_PROMPT.format(unmatched_text=unmatched_text[:3000])
 
-        response = await self.llm.chat(
+        response = await self.llm.chat_with_retry(
             messages=[Message(role=Role.USER, content=prompt)],
             temperature=0.2,
             max_tokens=1000,

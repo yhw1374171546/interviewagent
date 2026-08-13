@@ -133,13 +133,34 @@ class _FakeBadDecisionLLM(LLMClient):
 
 
 class _FakeCrashLLM(LLMClient):
-    """调用即抛异常的 LLM（模拟超时/网络故障）"""
+    """调用即抛异常的 LLM（模拟非瞬态故障，不可重试 → 直接走降级）"""
 
     def __init__(self):
         super().__init__(model="fake-crash")
 
     async def chat(self, messages, **kwargs):
-        raise RuntimeError("simulated API timeout")
+        raise RuntimeError("simulated model failure")
+
+
+class _FlakyLLM(LLMClient):
+    """
+    前 N 次调用抛限流异常、之后恢复正常的 LLM — 验证重试链路真正生效。
+    """
+
+    def __init__(self, fail_times: int = 1):
+        super().__init__(model="fake-flaky")
+        self.fail_times = fail_times
+        self.calls = 0
+
+    async def chat(self, messages, **kwargs):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise RuntimeError("RateLimitError: simulated 429 timeout")
+        return LLMResponse(
+            content='{"depth_level": "深入", "structure_level": "清晰", '
+                    '"overall_comment": "ok", "follow_up_decision": "move_on", '
+                    '"follow_up_question": "", "strengths": [], "weaknesses": []}',
+        )
 
 
 class TestLLMOutputEdgeCases:
@@ -170,6 +191,16 @@ class TestLLMOutputEdgeCases:
         ))
         assert ev.overall_comment, "LLM 失败时评语不能为空"
         assert "语义评估" in ev.overall_comment or "规则" in ev.overall_comment
+
+    def test_c5_retry_recovers_from_rate_limit(self):
+        """重试链路生效: 限流异常 → 自动重试 → 恢复成功（不是直接失败）"""
+        flaky = _FlakyLLM(fail_times=1)
+        ev = run(AnswerEvaluator(flaky).evaluate(
+            GO_GC_QUESTION, "三色标记 写屏障 混合写屏障 触发条件 调优手段" * 3,
+        ))
+        assert flaky.calls == 2, f"应该重试 1 次（共 2 次调用），实际 {flaky.calls}"
+        assert ev.follow_up_decision == FollowUpDecision.MOVE_ON
+        assert "语义评估" not in ev.overall_comment  # 重试成功后走正常路径
 
 
 # ═══════════════ D 类: 追问异常 ═══════════════

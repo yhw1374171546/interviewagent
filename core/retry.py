@@ -22,6 +22,7 @@ LLM 调用重试与容错机制
 from __future__ import annotations
 
 import asyncio
+import inspect
 import random
 import time
 from collections.abc import Callable
@@ -183,7 +184,12 @@ async def with_retry(
 
     for attempt in range(config.max_retries + 1):  # 0 是首次尝试
         try:
-            result = await fn() if asyncio.iscoroutinefunction(fn) else fn()
+            # 注意: 不能只看 iscoroutinefunction(fn) — lambda 包裹协程时
+            # iscoroutinefunction 为 False，协程会被原样返回而不执行。
+            # 正确做法: 调用后检查返回值是否可 await。
+            result = fn()
+            if inspect.isawaitable(result):
+                result = await result
             if attempt > 0:
                 logger.info(f"✅ 第 {attempt} 次重试成功")
             return result
@@ -222,7 +228,10 @@ async def with_retry(
     if fallback_fn:
         try:
             logger.info("🔄 执行降级策略...")
-            return await fallback_fn() if asyncio.iscoroutinefunction(fallback_fn) else fallback_fn()
+            fb_result = fallback_fn()
+            if inspect.isawaitable(fb_result):
+                fb_result = await fb_result
+            return fb_result
         except Exception as fallback_error:
             logger.error(f"❌ 降级也失败了: {fallback_error}")
 
@@ -302,7 +311,10 @@ class LLMRetryHandler:
     async def _do_fallback(self, fallback_fn: Callable | None) -> Any:
         """执行降级"""
         if fallback_fn:
-            return await fallback_fn() if asyncio.iscoroutinefunction(fallback_fn) else fallback_fn()
+            fb_result = fallback_fn()
+            if inspect.isawaitable(fb_result):
+                fb_result = await fb_result
+            return fb_result
         if self.fallback_llm:
             return await self.fallback_llm.chat(...)
         raise RuntimeError("无可用降级方案")

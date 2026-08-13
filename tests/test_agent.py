@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from core.llm import LLMClient
 from interview.evaluator import EvaluationResult, FollowUpDecision
 from interview.jd_parser import JDAnalysis, JDParser
 from interview.question_gen import InterviewQuestion, QuestionType
@@ -14,22 +15,20 @@ from interview.report import ReportGenerator
 
 # ── Stub LLM ──────────────────────────────────────────────────
 
-class StubLLM:
-    """测试用 LLM，不产生真实 API 调用"""
+class StubLLM(LLMClient):
+    """
+    测试用 LLM，不产生真实 API 调用。
+
+    继承 LLMClient（而非鸭子类型）— 面试链路各模块现在调用
+    llm.chat_with_retry()（容错层），继承后自动获得该方法。
+    """
 
     def __init__(self, responses: list | None = None):
         from core.llm import LLMResponse
-        self.model = "stub"
+
+        super().__init__(model="stub")
         self.responses = responses or [LLMResponse(content="{}")]
         self.call_count = 0
-
-    def system_message(self, content: str):
-        from core.llm import Message, Role
-        return Message(role=Role.SYSTEM, content=content)
-
-    def user_message(self, content: str):
-        from core.llm import Message, Role
-        return Message(role=Role.USER, content=content)
 
     async def chat(self, messages, tools=None, temperature=0.7, max_tokens=4096, stream=False):
         self.call_count += 1

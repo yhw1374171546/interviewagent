@@ -226,8 +226,13 @@ class LLMClient(ABC):
 
         config = RetryConfig(max_retries=max_retries)
 
+        # 注意: 用关键字参数调用 chat — 兼容 **kwargs 签名的 LLM 实现
+        # （如测试 Fake/第三方包装），位置参数会直接 TypeError
         return await with_retry(
-            fn=lambda: self.chat(messages, tools, temperature, max_tokens),
+            fn=lambda: self.chat(
+                messages=messages, tools=tools,
+                temperature=temperature, max_tokens=max_tokens,
+            ),
             config=config,
         )
 
