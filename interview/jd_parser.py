@@ -183,7 +183,7 @@ class JDParser:
         response = await self.llm.chat_with_retry(
             messages=[Message(role=Role.USER, content=prompt)],
             temperature=0.2,
-            max_tokens=1000,
+            max_tokens=2000,
         )
 
         content = response.content.strip()

@@ -185,7 +185,7 @@ class QuestionGenerator:
             response = await self.llm.chat_with_retry(
                 messages=[Message(role=Role.USER, content=prompt)],
                 temperature=0.5,
-                max_tokens=2000,
+                max_tokens=3000,
             )
 
             data = self._parse_json(response.content)
@@ -239,7 +239,7 @@ class QuestionGenerator:
             response = await self.llm.chat_with_retry(
                 messages=[Message(role=Role.USER, content=prompt)],
                 temperature=0.7,
-                max_tokens=2000,
+                max_tokens=3000,
             )
 
             data = self._parse_json(response.content)

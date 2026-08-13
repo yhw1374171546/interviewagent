@@ -166,7 +166,7 @@ class ReportGenerator:
             response = await self.llm.chat_with_retry(
                 messages=[Message(role=Role.USER, content=prompt)],
                 temperature=0.4,
-                max_tokens=1500,
+                max_tokens=3000,
             )
             llm_report = self._parse_llm_report(response.content)
         except Exception:

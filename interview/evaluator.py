@@ -449,7 +449,7 @@ class AnswerEvaluator:
             response = await self.llm.chat_with_retry(
                 messages=[Message(role=Role.USER, content=prompt)],
                 temperature=0.3,
-                max_tokens=800,
+                max_tokens=2000,
             )
 
             data = self._parse_json(response.content)
