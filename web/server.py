@@ -28,11 +28,12 @@ FastAPI 后端，对接 interview 核心模块。
 from __future__ import annotations
 
 import io
+import json
 import sys
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).parent.parent))  # 保证项目根目录可导入
@@ -276,6 +277,11 @@ def append_message(session_id: str, **msg) -> None:
     RECORD_MESSAGES.setdefault(session_id, []).append(msg)
 
 
+def _sse(event: str, data: dict) -> str:
+    """构造一条 SSE 消息（event + JSON data）"""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 # ── API: 面试生命周期 ─────────────────────────────────────────
 
 @app.post("/api/interviews")
@@ -304,6 +310,7 @@ async def create_interview(
         get_fast_llm(),                      # 高频调用: 评估/JD/暖场/出题
         memory=shared_memory,
         llm_strong=get_llm(settings.llm_model),  # 最终报告: 强模型
+        defer_report=True,                   # 报告由 SSE 流式生成
     )
     try:
         turn_start = await interviewer.start(content)
@@ -359,6 +366,8 @@ async def submit_answer(session_id: str, payload: dict):
 
     evaluation = evaluation_to_dict(turn.evaluation)
     report = report_to_dict(turn.report)
+    # 延迟报告: 面试结束但报告未内联生成 → 前端转 SSE 流式拉取
+    stream_report = turn.is_finished and report is None
 
     if evaluation:
         append_message(session_id, role="assistant", kind="evaluation", content="", evaluation=evaluation)
@@ -381,8 +390,10 @@ async def submit_answer(session_id: str, payload: dict):
         "report": report,
         "question": question_to_dict(turn.question),
         "phase": turn.phase.value,
+        "message": turn.message if turn.phase.value == "follow_up" else "",
         "progress": turn.progress,
         "is_finished": turn.is_finished,
+        "stream_report": stream_report,
     }
 
 
@@ -394,6 +405,7 @@ async def skip_question(session_id: str):
     turn = await interviewer.skip_question()
 
     report = report_to_dict(turn.report)
+    stream_report = turn.is_finished and report is None
     if report:
         append_message(session_id, role="assistant", kind="report", content="", report=report)
         append_metrics_message(session_id, interviewer)
@@ -408,7 +420,47 @@ async def skip_question(session_id: str):
         "question": question_to_dict(turn.question),
         "progress": turn.progress,
         "is_finished": turn.is_finished,
+        "stream_report": stream_report,
     }
+
+
+@app.get("/api/interviews/{session_id}/report/stream")
+async def stream_report(session_id: str):
+    """
+    流式生成最终报告（SSE）。
+
+    面试结束后（/answer 返回 stream_report=true）前端打开此连接，
+    报告文字经 LLM 流式逐字返回（评估 JSON 保持整块，不流式）。
+
+    事件:
+        stats  — 确定性统计部分（分数/等级/逐题），先到，可立即渲染
+        delta  — LLM 叙事逐字增量（改进建议+结论理由）
+        done   — 完整报告 + 已持久化
+    """
+    interviewer = get_interviewer(session_id)
+
+    async def event_stream():
+        async for event in interviewer.stream_report():
+            etype = event["type"]
+            if etype == "stats":
+                yield _sse("stats", {"report": report_to_dict(event["report"])})
+            elif etype == "delta":
+                yield _sse("delta", {"text": event["text"]})
+            elif etype == "done":
+                report = event["report"]
+                append_message(
+                    session_id, role="assistant", kind="report",
+                    content="", report=report_to_dict(report),
+                )
+                append_metrics_message(session_id, interviewer)
+                persist(session_id, interviewer)
+                yield _sse("done", {"report": report_to_dict(report)})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── API: 历史会话管理 ─────────────────────────────────────────

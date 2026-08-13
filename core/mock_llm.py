@@ -63,6 +63,8 @@ class MockLLMClient(LLMClient):
             content = "[]"  # LLM 补充出题: 题库已足够
         elif "未匹配的 JD 文本" in prompt or "missing_skills" in prompt:
             content = self._jd_fallback(prompt)
+        elif "面试复盘" in prompt:
+            content = self._stream_narrative(prompt)
         else:
             content = "好的，我们继续。"
 
@@ -162,6 +164,21 @@ class MockLLMClient(LLMClient):
             "follow_up_question": fq,
             "follow_up_reason": f"关键词命中 {match_rate:.0%}，长度 {n} 字",
         }, ensure_ascii=False)
+
+    def _stream_narrative(self, prompt: str) -> str:
+        """流式报告叙事 — 确定性改进建议（纯文本，供 SSE 演示）"""
+        scores = re.findall(r"评分:\s*([\d.]+)/10", prompt)
+        avg = round(sum(float(s) for s in scores) / len(scores), 1) if scores else 7.0
+        if avg >= 7.5:
+            note = "整体表现优秀"
+        elif avg >= 5:
+            note = "整体表现合格，仍有提升空间"
+        else:
+            note = "基础有待夯实"
+        return (
+            f"建议围绕薄弱知识点做专题复习，并结合真实项目加深对原理的理解；"
+            f"回答时先给结论再展开细节，注意结构化表达。{note}。"
+        )
 
     def _report(self, prompt: str) -> str:
         """报告 — 从面试记录中提取每题的评分算平均分（确定性）"""

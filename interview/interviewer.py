@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -194,10 +195,14 @@ class Interviewer:
         max_follow_ups: int = 3,
         memory: InterviewMemory | None = None,
         llm_strong: LLMClient | None = None,
+        defer_report: bool = False,
     ):
         self.llm = llm_client
         self.total_questions = total_questions
         self.max_follow_ups = max_follow_ups
+        # 延迟报告: True 时面试结束不再内联生成报告，改由 stream_report() 流式生成
+        # （Web SSE 路径用；CLI/测试默认 False，保持原内联报告行为）
+        self.defer_report = defer_report
 
         # 跨会话记忆（可选 — ChromaDB 不可用时自动降级进程内存储）
         self.memory = memory if memory is not None else InterviewMemory()
@@ -301,6 +306,15 @@ class Interviewer:
         if self.state.current_question_index >= self.state.total_questions:
             # 所有题目已答完 → 生成报告
             self.state.phase = InterviewPhase.CONCLUSION
+            if self.defer_report:
+                # 报告由 stream_report() 流式生成（Web SSE 路径）
+                return TurnResult(
+                    phase=InterviewPhase.CONCLUSION,
+                    message="面试结束，正在生成报告…",
+                    report=None,
+                    progress="面试结束",
+                    is_finished=True,
+                )
             t0 = time.perf_counter()
             snap_before = self._llm_snapshot(self.llm_strong)
             report = await self.report_gen.generate(
@@ -464,6 +478,29 @@ class Interviewer:
 
         return await self.next_question()
 
+    async def stream_report(self) -> AsyncIterator[dict]:
+        """
+        流式生成最终评估报告（Web SSE 路径）。
+
+        事件序列（由 ReportGenerator.generate_stream 产出）:
+            {"type": "stats", "report": ...} / {"type": "delta", "text": ...} / {"type": "done", "report": ...}
+
+        流式结束后记录 report 阶段指标（延迟/token 经 stream_chat_with_retry 已计数）
+        并将状态机置为 CONCLUSION。
+        """
+        t0 = time.perf_counter()
+        snap_before = self._llm_snapshot(self.llm_strong)
+        async for event in self.report_gen.generate_stream(
+            jd=self.state.jd_analysis,
+            answers=self.state.answers,
+        ):
+            if event["type"] == "done":
+                # 在产出 done 前记录 report 阶段指标（token 已在流式入口累计），
+                # 保证 done 之后的 metrics 卡片能看到报告阶段的 token 成本
+                self._record_stage("report", t0, self.llm_strong, snap_before)
+                self.state.phase = InterviewPhase.CONCLUSION
+            yield event
+
     async def run_full_interview(
         self,
         jd_text: str,
@@ -549,6 +586,7 @@ class Interviewer:
         return _jsonable({
             "total_questions": self.total_questions,
             "max_follow_ups": self.max_follow_ups,
+            "defer_report": self.defer_report,
             "state": self.state,
         })
 
@@ -575,6 +613,7 @@ class Interviewer:
             total_questions=data.get("total_questions", 8),
             max_follow_ups=data.get("max_follow_ups", 3),
             memory=memory,
+            defer_report=data.get("defer_report", False),
         )
 
         s = data.get("state", {})

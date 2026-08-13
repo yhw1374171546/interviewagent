@@ -321,7 +321,7 @@ function renderMessages(messages) {
   scrollToBottom();
 }
 
-function appendMessage(m) {
+function appendMessage(m, animate = false) {
   const container = $("#messages");
   const wrapper = document.createElement("div");
   wrapper.className = "msg " + (m.role === "user" ? "user" : "assistant");
@@ -344,7 +344,11 @@ function appendMessage(m) {
       break;
 
     case "follow_up":
-      wrapper.appendChild(assistantBubble("🔍 " + m.content));
+      wrapper.appendChild(
+        animate
+          ? typewriterBubble("🔍 " + m.content)
+          : assistantBubble("🔍 " + m.content)
+      );
       break;
 
     case "report":
@@ -484,6 +488,118 @@ function scrollToBottom() {
   container.scrollTop = container.scrollHeight;
 }
 
+/* ═══════════════ 流式报告（SSE） ═══════════════ */
+
+// 追问/报告文字逐字显示: 打字机效果（历史回放不触发动画）
+function typewriterBubble(text) {
+  const b = document.createElement("div");
+  b.className = "bubble";
+  b.textContent = "";
+  let i = 0;
+  const step = () => {
+    b.textContent = text.slice(0, i);
+    i += 1;
+    scrollToBottom();
+    if (i <= text.length) setTimeout(step, 18);
+  };
+  step();
+  return b;
+}
+
+// 报告生成中的占位气泡（typing-dots + 流式文本）
+function addStreamingReport() {
+  const container = $("#messages");
+  const wrapper = document.createElement("div");
+  wrapper.className = "msg assistant";
+  wrapper.id = "streaming-report";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble report-streaming";
+  const dots = document.createElement("span");
+  dots.className = "typing-dots";
+  dots.innerHTML = "<span></span><span></span><span></span>";
+  const text = document.createElement("span");
+  text.className = "report-stream-text";
+  text.textContent = "正在生成报告…";
+  bubble.appendChild(dots);
+  bubble.appendChild(text);
+  wrapper.appendChild(bubble);
+  container.appendChild(wrapper);
+  scrollToBottom();
+  return text;
+}
+
+// 解析单条 SSE 帧（event:/data: 行）
+function parseSSE(raw) {
+  let event = "message";
+  const dataLines = [];
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  }
+  return { event, data: dataLines.join("\n") };
+}
+
+// 用 fetch ReadableStream 消费 SSE，报告文字逐字显示
+async function streamReport(sessionId) {
+  const textEl = addStreamingReport();
+  let accumulated = "";
+
+  const handleEvent = (raw) => {
+    const { event, data } = parseSSE(raw);
+    if (event === "stats") {
+      textEl.textContent = "分析完成，正在生成建议…";
+    } else if (event === "delta") {
+      try {
+        accumulated += JSON.parse(data).text;
+      } catch (e) {
+        accumulated += data;
+      }
+      textEl.textContent = accumulated;
+      scrollToBottom();
+    } else if (event === "done") {
+      const el = $("#streaming-report");
+      if (el) el.remove();
+      // 服务器已持久化 report + metrics 消息，重拉一次渲染完整卡片
+      refreshSessionMessages().then(scrollToBottom);
+      finishInterview();
+    }
+  };
+
+  try {
+    const resp = await fetch(`/api/interviews/${sessionId}/report/stream`);
+    if (!resp.ok || !resp.body) throw new Error("报告流加载失败");
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        const raw = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        handleEvent(raw);
+      }
+    }
+  } catch (e) {
+    const el = $("#streaming-report");
+    if (el) el.remove();
+    appendMessage({ role: "assistant", kind: "follow_up", content: "⚠️ 报告生成失败：" + e.message });
+    finishInterview();
+  }
+}
+
+// 面试结束的统一收尾（禁用输入、刷新侧边栏）
+function finishInterview() {
+  state.canResume = false;
+  $("#chat-progress").textContent = "面试结束";
+  updateComposer();
+  loadHistory();
+}
+
 /* ═══════════════ 输入区 ═══════════════ */
 
 const answerInput = $("#answer-input");
@@ -551,15 +667,13 @@ async function sendAnswer() {
     }
     if (data.report) {
       appendMessage({ role: "assistant", kind: "report", report: data.report });
-      state.canResume = false;
-      $("#chat-progress").textContent = "面试结束";
-      updateComposer();
-      loadHistory();
+      finishInterview();
+    } else if (data.stream_report) {
+      // 报告改为 SSE 流式：逐字显示，完成后由 streamReport 收尾
+      await streamReport(state.currentSession);
     } else if (data.phase === "follow_up") {
-      // 追问: question 字段是同一道题，消息体是追问内容
-      // 服务端已把追问记录进 messages，这里从返回的 question 判断
-      // 简化: 重新拉取会话消息保证一致
-      await refreshSessionMessages();
+      // 追问文字逐字显示（打字机），历史回放不会重放动画
+      appendMessage({ role: "assistant", kind: "follow_up", content: data.message }, true);
       $("#chat-progress").textContent = data.progress || "";
     } else if (data.question) {
       await refreshSessionMessages();
@@ -590,10 +704,9 @@ async function skipQuestion() {
 
     if (data.report) {
       appendMessage({ role: "assistant", kind: "report", report: data.report });
-      state.canResume = false;
-      $("#chat-progress").textContent = "面试结束";
-      updateComposer();
-      loadHistory();
+      finishInterview();
+    } else if (data.stream_report) {
+      await streamReport(state.currentSession);
     } else if (data.question) {
       await refreshSessionMessages();
       $("#chat-progress").textContent = data.progress || "";

@@ -153,6 +153,27 @@ def _calc_delay(attempt: int, config: RetryConfig) -> float:
     return delay
 
 
+def is_retryable_error(error: Exception, config: RetryConfig) -> bool:
+    """
+    判断异常是否可重试。
+
+    规则: 异常类型在 retryable_errors 白名单内，或错误信息包含
+    rate/timeout/connection/500/503/529 等关键词。流式调用与普通
+    调用共用同一判断，避免两套规则漂移。
+    """
+    error_type = type(error).__name__
+    error_msg = str(error)[:200]
+    return (
+        error_type in config.retryable_errors
+        or "rate" in error_msg.lower()
+        or "timeout" in error_msg.lower()
+        or "connection" in error_msg.lower()
+        or "500" in error_msg
+        or "503" in error_msg
+        or "529" in error_msg
+    )
+
+
 async def with_retry(
     fn: Callable[[], Any],
     config: RetryConfig | None = None,
@@ -200,15 +221,7 @@ async def with_retry(
             error_msg = str(e)[:200]
 
             # 判断是否可重试
-            is_retryable = (
-                error_type in config.retryable_errors
-                or "rate" in error_msg.lower()
-                or "timeout" in error_msg.lower()
-                or "connection" in error_msg.lower()
-                or "500" in error_msg
-                or "503" in error_msg
-                or "529" in error_msg
-            )
+            is_retryable = is_retryable_error(e, config)
 
             if not is_retryable or attempt >= config.max_retries:
                 logger.error(

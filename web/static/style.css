@@ -431,6 +431,10 @@ body {
 .typing-dots span:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 70%, 100% { opacity: .25; } 35% { opacity: 1; } }
 
+/* 流式报告生成中气泡 */
+.bubble.report-streaming { display: flex; align-items: flex-start; gap: 6px; }
+.report-stream-text { color: var(--text-dim); font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; }
+
 /* ── 输入区 ── */
 
 .composer { padding: 14px 24px 16px; border-top: 1px solid var(--border); }

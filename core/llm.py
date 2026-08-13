@@ -132,6 +132,23 @@ class LLMClient(ABC):
         for key in self.usage_stats:
             self.usage_stats[key] = 0 if key != "total_latency_sec" else 0.0
 
+    def _record_usage(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        latency_sec: float,
+    ) -> None:
+        """累计一次调用的用量（延迟 + token），供会话级聚合与成本估算"""
+        self.usage_stats["call_count"] += 1
+        self.usage_stats["prompt_tokens"] += prompt_tokens
+        self.usage_stats["completion_tokens"] += completion_tokens
+        self.usage_stats["total_latency_sec"] += latency_sec
+
+    @staticmethod
+    def _estimate_prompt_tokens(messages: list[Message]) -> int:
+        """流式路径无 usage 返回时，用字符数估算 prompt token（与 Mock 同口径）"""
+        return sum(len(m.content) // 4 for m in messages)
+
     @abstractmethod
     async def chat(
         self,
@@ -253,11 +270,12 @@ class LLMClient(ABC):
         )
 
         # 调用级指标: 延迟 + token（供会话级聚合与成本估算）
-        self.usage_stats["call_count"] += 1
-        self.usage_stats["total_latency_sec"] += _time.perf_counter() - t0
         usage = getattr(response, "usage", None) or {}
-        self.usage_stats["prompt_tokens"] += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0) or 0
-        self.usage_stats["completion_tokens"] += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0) or 0
+        self._record_usage(
+            prompt_tokens=usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0) or 0,
+            completion_tokens=usage.get("completion_tokens", 0) or usage.get("output_tokens", 0) or 0,
+            latency_sec=_time.perf_counter() - t0,
+        )
         return response
 
     async def stream_chat(
@@ -281,6 +299,84 @@ class LLMClient(ABC):
             max_tokens=max_tokens,
         )
         yield response.content
+
+    async def stream_chat_with_retry(
+        self,
+        messages: list[Message],
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        max_retries: int = 3,
+    ) -> AsyncIterator[str]:
+        """
+        带重试 + usage_stats 计数的流式输出。
+
+        与 chat_with_retry 对称: 这是「计数的流式入口」。用法:
+
+            async for chunk in llm.stream_chat_with_retry(messages, ...):
+                ...
+
+        重试语义:
+            - 仅在首个文本块到达前失败时重试（连接建立/429/超时等）——
+              一旦已经开始往客户端输出，就绝不重试（否则会重复输出已发文字）。
+            - 中途失败直接终止（抛异常），由调用方决定降级。
+
+        指标:
+            - prompt_tokens 用消息字符数估算（流式 API 通常不返回 usage）
+            - completion_tokens 用累计文本字符数估算（与 Mock 同口径）
+            - 仅在完整消费成功后一次性累计，失败不污染指标
+        """
+        import asyncio as _asyncio
+        import time as _time
+
+        from .retry import RetryConfig, _calc_delay, is_retryable_error
+
+        config = RetryConfig(max_retries=max_retries)
+        last_error: Exception | None = None
+        t0 = _time.perf_counter()
+
+        for attempt in range(config.max_retries + 1):
+            collected: list[str] = []
+            gen = self.stream_chat(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            try:
+                # 取首块: 连接建立/限流/超时在此暴露，失败即可重试（还没往外发文字）
+                first = await anext(gen)
+            except StopAsyncIteration:
+                first = None  # 空流（无内容）
+            except Exception as e:
+                last_error = e
+                if not is_retryable_error(e, config) or attempt >= config.max_retries:
+                    break
+                delay = _calc_delay(attempt, config)
+                logger.warning(
+                    f"⏳ 流式调用第 {attempt + 1}/{config.max_retries} 次重试，"
+                    f"等待 {delay:.1f}s... ({type(e).__name__})"
+                )
+                await _asyncio.sleep(delay)
+                continue
+
+            # 首块已成功取出 → 继续消费；此后失败绝不重试（避免重复输出已发文字）
+            try:
+                if first is not None:
+                    collected.append(first)
+                    yield first
+                async for chunk in gen:
+                    collected.append(chunk)
+                    yield chunk
+            except Exception:
+                raise
+
+            self._record_usage(
+                prompt_tokens=self._estimate_prompt_tokens(messages),
+                completion_tokens=len("".join(collected)) // 4,
+                latency_sec=_time.perf_counter() - t0,
+            )
+            return
+
+        raise last_error if last_error is not None else RuntimeError("流式调用失败")
 
     def with_cache(self, enabled: bool = True) -> LLMClient:
         """启用/禁用 prompt 缓存"""

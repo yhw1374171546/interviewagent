@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from core.llm import LLMClient, Message, Role
@@ -88,6 +90,24 @@ FINAL_REPORT_PROMPT = """你是一位资深面试官，请根据以下面试记�
 ```"""
 
 
+# 流式报告叙事 prompt — 纯文本输出（非 JSON），逐字流式显示
+STREAM_REPORT_PROMPT = """你是一位资深面试官。请根据以下面试记录，撰写一段针对性的面试复盘建议。
+
+## 岗位信息
+- 岗位: {position}
+- 核心要求: {skills}
+
+## 面试记录
+{interview_log}
+
+## 要求
+请用自然流畅的中文写一段「改进建议 + 结论理由」，不要用 JSON、不要标题、不要列表符号：
+1. 先给 2-3 条具体、可执行的改进建议（紧扣面试记录中暴露的短板）
+2. 再用一句话给出面试结论的理由
+
+字数控制在 200 字左右，直接输出正文。"""
+
+
 class ReportGenerator:
     """
     面试报告生成器。
@@ -106,7 +126,7 @@ class ReportGenerator:
         answers: list[dict],
     ) -> InterviewReport:
         """
-        生成完整的面试评估报告。
+        生成完整的面试评估报告（非流式，LLM 一次返回 JSON）。
 
         Args:
             jd: JD 分析结果
@@ -115,6 +135,100 @@ class ReportGenerator:
         Returns:
             InterviewReport: 结构化评估报告
         """
+        report = self._compute_stats(answers)
+        if not answers:
+            return report
+
+        # ── 调用 LLM 生成综合报告 ──
+        interview_log = self._format_interview_log(answers)
+
+        prompt = FINAL_REPORT_PROMPT.format(
+            position=jd.position or "未知岗位",
+            skills=", ".join(jd.all_skills[:8]) or "相关技能",
+            interview_log=interview_log,
+        )
+
+        try:
+            response = await self.llm.chat_with_retry(
+                messages=[Message(role=Role.USER, content=prompt)],
+                temperature=0.4,
+                max_tokens=3000,
+            )
+            llm_report = self._parse_llm_report(response.content)
+        except Exception:
+            llm_report = {}
+
+        report.main_strengths = llm_report.get("main_strengths", ["基础扎实", "表达清晰", "学习能力强"])
+        report.main_weaknesses = llm_report.get("main_weaknesses", ["深度有待提升", "架构经验不足"])
+        report.improvement_advice = llm_report.get("improvement_advice", "建议多参与实际项目，加深技术理解深度。")
+        report.verdict = llm_report.get("verdict", "建议待定")
+        report.verdict_reason = llm_report.get("verdict_reason", "综合表现尚可，建议进一步考察。")
+
+        return report
+
+    async def generate_stream(
+        self,
+        jd: JDAnalysis,
+        answers: list[dict],
+    ) -> AsyncIterator[dict]:
+        """
+        流式生成面试报告（SSE 用）。
+
+        事件序列:
+            1. {"type": "stats", "report": InterviewReport}  — 确定性统计部分（分/等级/逐题）
+            2. {"type": "delta", "text": str}               — LLM 叙事逐字增量（改进建议+结论理由）
+            3. {"type": "done",  "report": InterviewReport} — 完整报告（含流式叙事）
+
+        设计: 结构化字段（分数/等级/优劣势/结论）确定性计算，立即可渲染；
+        改进建议这类长文本由 LLM 流式生成（`stream_chat_with_retry` 走计数的流式入口），
+        逐字推给前端 — 评估 JSON 保持整块，报告文字逐字显示。
+        """
+        report = self._compute_stats(answers)
+        yield {"type": "stats", "report": report}
+
+        if not answers:
+            yield {"type": "done", "report": report}
+            return
+
+        # 结论 + 优劣势: 确定性聚合（可复现），不依赖 LLM
+        report.verdict = self._verdict_from_score(report.overall_score)
+        report.main_strengths = self._aggregate_evals(
+            answers, "strengths", ["基础扎实", "表达清晰", "学习能力强"]
+        )
+        report.main_weaknesses = self._aggregate_evals(
+            answers, "weaknesses", ["深度有待提升", "架构经验不足"]
+        )
+        report.verdict_reason = f"综合得分 {report.overall_score}/10，判定为「{report.verdict}」。"
+
+        # 流式叙事: 改进建议 + 结论理由（纯文本）
+        interview_log = self._format_interview_log(answers)
+        prompt = STREAM_REPORT_PROMPT.format(
+            position=jd.position or "未知岗位",
+            skills=", ".join(jd.all_skills[:8]) or "相关技能",
+            interview_log=interview_log,
+        )
+
+        try:
+            chunks: list[str] = []
+            async for chunk in self.llm.stream_chat_with_retry(
+                messages=[Message(role=Role.USER, content=prompt)],
+                temperature=0.4,
+                max_tokens=1000,
+            ):
+                chunks.append(chunk)
+                yield {"type": "delta", "text": chunk}
+            narrative = "".join(chunks).strip()
+            if narrative:
+                report.improvement_advice = narrative
+        except Exception:
+            # 流式失败 → 降级到默认建议（结构化报告不受影响）
+            if not report.improvement_advice:
+                report.improvement_advice = "建议针对薄弱知识点做专题复习，多积累实际项目中的问题解决经验。"
+
+        yield {"type": "done", "report": report}
+
+    def _compute_stats(self, answers: list[dict]) -> InterviewReport:
+        """确定性统计: 分维度平均分、总评、等级、逐题详情（0 API 调用）"""
         if not answers:
             return InterviewReport(
                 overall_score=0,
@@ -122,7 +236,6 @@ class ReportGenerator:
                 improvement_advice="无面试记录，无法评估",
             )
 
-        # ── 1. 统计分维度得分 ──
         valid_evals = [
             a["evaluation"] for a in answers
             if a.get("evaluation") is not None
@@ -153,35 +266,30 @@ class ReportGenerator:
         else:
             report.overall_level = "❌ 需提升"
 
-        # ── 2. 调用 LLM 生成综合报告 ──
-        interview_log = self._format_interview_log(answers)
-
-        prompt = FINAL_REPORT_PROMPT.format(
-            position=jd.position or "未知岗位",
-            skills=", ".join(jd.all_skills[:8]) or "相关技能",
-            interview_log=interview_log,
-        )
-
-        try:
-            response = await self.llm.chat_with_retry(
-                messages=[Message(role=Role.USER, content=prompt)],
-                temperature=0.4,
-                max_tokens=3000,
-            )
-            llm_report = self._parse_llm_report(response.content)
-        except Exception:
-            llm_report = {}
-
-        report.main_strengths = llm_report.get("main_strengths", ["基础扎实", "表达清晰", "学习能力强"])
-        report.main_weaknesses = llm_report.get("main_weaknesses", ["深度有待提升", "架构经验不足"])
-        report.improvement_advice = llm_report.get("improvement_advice", "建议多参与实际项目，加深技术理解深度。")
-        report.verdict = llm_report.get("verdict", "建议待定")
-        report.verdict_reason = llm_report.get("verdict_reason", "综合表现尚可，建议进一步考察。")
-
-        # ── 3. 逐题详情 ──
         report.details = self._build_details(answers)
-
         return report
+
+    @staticmethod
+    def _verdict_from_score(score: float) -> str:
+        """确定性结论: 分数阈值映射（与 Mock 同口径，保证 mock/真实两条路径一致）"""
+        if score >= 7.5:
+            return "推荐通过"
+        if score >= 5:
+            return "建议待定"
+        return "不推荐通过"
+
+    @staticmethod
+    def _aggregate_evals(answers: list[dict], field: str, default: list[str]) -> list[str]:
+        """聚合各题评估的 strengths/weaknesses，按出现频次取前 3"""
+        counter: Counter = Counter()
+        for a in answers:
+            ev = a.get("evaluation")
+            if ev is None:
+                continue
+            for item in getattr(ev, field, None) or []:
+                counter[item] += 1
+        top = [item for item, _ in counter.most_common(3)]
+        return top or default
 
     def quick_report(
         self,
