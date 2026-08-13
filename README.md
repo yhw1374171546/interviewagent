@@ -184,10 +184,21 @@ python demo.py                # 工程能力演示（无需 API Key）
 
 无 Key 时全链路自动降级 Mock LLM（演示模式）。
 
+### Docker 一键启动
+
+```bash
+cp .env.example .env          # 可选：填写 DeepSeek/OpenAI Key；不填也能跑 Mock 演示模式
+docker compose up --build
+# 浏览器打开 http://localhost:8000
+```
+
+- 会话数据持久化在宿主 `./data`（容器重建不丢记录）
+- 未配置 API Key 时自动降级 Mock LLM 演示模式，零配置完整体验面试流程
+
 ### Web Demo（推荐体验方式）
 
 ```bash
-uvicorn web.server:app --reload
+python -m uvicorn web.server:app --app-dir C:/Users/13741/Desktop/code/agent --host 127.0.0.1 --port 8000
 # 浏览器打开 http://127.0.0.1:8000
 ```
 
@@ -263,6 +274,8 @@ python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
 
 本项目配套了完整的面试 Q&A 文档：
 - **[面试 Q&A 参考](docs/interview_qa.md)** — 13 道高频面试题及详细回答
+- **[技术博客](docs/blog.md)** — 《从 0 实现一个面试 Agent：混合架构、双引擎评分与容错设计》
+- **[简历定稿](docs/resume.md)** — 项目 bullet + 量化指标 + 追问预案
 - **[优化手段全记录](docs/optimization.md)** — 14 项优化措施及量化效果
 - **[架构设计文档](docs/architecture.md)** — 系统架构与设计决策
 
