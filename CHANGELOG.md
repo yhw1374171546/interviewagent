@@ -418,6 +418,25 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段十一：核心链路补全（容错生效 + 记忆接入）
+
+### 2026-08-13 21:10 | `core/retry.py` + `core/llm.py` — 重试层两个真 bug
+**做了什么**: 把 interviewer/evaluator/jd_parser/question_gen/report 全部改用 `chat_with_retry()`，重试/熔断/降级从死代码变为实际生效。接入时暴露两个真 bug：  
+**Bug 1（严重）**: `with_retry` 用 `iscoroutinefunction(fn)` 判断是否 await — lambda 包裹协程时返回 False，协程被**原样返回从未执行**，整个重试层形同虚设。修复: 调用后 `inspect.isawaitable(result)` 判断。  
+**Bug 2**: `chat_with_retry` 位置参数调用 `chat()`，与 `**kwargs` 签名的实现不兼容（TypeError）。修复: 关键字参数调用。  
+**测试**: FlakyLLM 注入 429 限流异常，验证自动重试恢复（2 次调用）→ 重试链路可被测试证明。  
+**经验**: 容错代码本身需要故障注入测试 — 没有 FlakyLLM 这类测试，重试层坏了都发现不了（此前 mock 全走成功路径，bug 一直潜伏）。
+
+### 2026-08-13 21:40 | `interview/memory_context.py` — 记忆模块接入面试链路
+**背景**: 此前 ChromaDB/ContextOptimizer 等"已写未接"——简历写了面试会翻车。本次真正接入两条链路：  
+**轮内记忆**: `build_history_summary()` 确定性压缩前几轮 Q/A（类别/得分/弱项，0 API 调用）→ 注入评估 prompt → 追问能"翻旧账"（"你刚才说用了 Kafka，为什么现在又说用 MQ？"）。  
+**跨会话记忆**: `InterviewMemory` 每题结束异步写入 (题目/回答/评分/技能标签)，新面试开始时语义检索**历史弱项**（得分<7）注入追问策略提示 → "候选人之前在数据库类题目表现弱，重点验证"。  
+**三级降级**: ChromaDB 向量检索 → 进程内兜底存储 → no-op（CI/精简环境不崩）— 记忆是增强功能，绝不阻塞主链路。  
+**接入点**: interviewer（评估上下文注入 + 异步记忆写入）/ evaluator（`history_context`、`memory_hints` 参数）/ web（共享记忆实例 + 会话 ID 回填）。  
+**测试**: 新增 12 个 — 摘要生成（空/内容/跳过/截断）、prompt 注入验证（捕获 LLM 消息）、降级检索（低分召回/高分排除/空记忆）、全链路离线记忆写入。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
