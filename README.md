@@ -1,5 +1,9 @@
 # 面试模拟 Agent 🎙️
 
+[![CI](https://github.com/yhw1374171546/interviewagent/actions/workflows/ci.yml/badge.svg)](https://github.com/yhw1374171546/interviewagent/actions)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
 > 针对目标 JD 的 AI 全真模拟面试 — 帮你秋招拿 Offer。
 >
 > 技术栈: Python · asyncio · OpenAI/Anthropic API · ChromaDB · ReAct Agent
