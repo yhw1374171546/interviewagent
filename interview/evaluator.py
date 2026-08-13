@@ -30,8 +30,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from core.llm import LLMClient, Message, Role
+from utils.logger import get_logger
 
+from .output_validator import repair_truncated_json
 from .question_bank import InterviewQuestion
+
+logger = get_logger(__name__)
 
 # ── 边界防护工具 ───────────────────────────────────────────────
 
@@ -298,10 +302,19 @@ class AnswerEvaluator:
         # ── 边界 C1: 追问决策枚举安全转换（非法值不崩溃）──
         decision = _safe_decision(llm_data.get("follow_up_decision"))
 
-        # ── 边界 D1: 追问文本为空 → 按决策类型给默认话术 ──
+        # ── 边界 D1: 追问文本为空 → 上下文追问兜底 ──
+        # 优先用未命中要点生成贴合题目的追问（"你的回答没有提到 X"），
+        # 没有未命中要点时才回退通用话术 — 修复"乱问"问题
         follow_up_question = (llm_data.get("follow_up_question") or "").strip()
         if decision != FollowUpDecision.MOVE_ON and not follow_up_question:
-            follow_up_question = _default_follow_up(decision)
+            if missed:
+                follow_up_question = (
+                    f"你刚才的回答没有提到「{'、'.join(missed[:2])}」，"
+                    "能展开说说吗？"
+                )
+                decision = FollowUpDecision.DEEPEN
+            else:
+                follow_up_question = _default_follow_up(decision)
 
         # ── 边界 6 (A6): 同句重复凑字数 → 结构分封顶 ──
         padded = self._is_padded_repetition(answer)
@@ -454,6 +467,12 @@ class AnswerEvaluator:
 
             data = self._parse_json(response.content)
 
+            # 解析失败 → 尝试修复被截断的 JSON（推理模型可能超长被截断）
+            if not data:
+                repaired = repair_truncated_json(response.content)
+                if repaired is not None:
+                    data = repaired
+
             # 将语义评级映射为分数
             depth_map = {"表面": 3, "较浅": 5, "适中": 6, "深入": 8, "非常深入": 9}
             struct_map = {"混乱": 2, "松散": 4, "一般": 5, "清晰": 7, "优秀": 9}
@@ -461,9 +480,16 @@ class AnswerEvaluator:
             depth_score = depth_map.get(data.get("depth_level", "适中"), 6)
             struct_score = struct_map.get(data.get("structure_level", "一般"), 5)
 
+            if not data:
+                # 兜底前必须留痕 — 之前静默返回 {} 导致线上问题无法定位
+                logger.warning(
+                    f"LLM 评估输出不可解析，已降级: {response.content[:200]!r}"
+                )
+
             return depth_score, struct_score, data
 
-        except Exception:
+        except Exception as e:
+            logger.warning(f"LLM 深度评估失败（降级到规则引擎）: {type(e).__name__}: {e}")
             return 5, 5, {}
 
     def _parse_json(self, text: str) -> dict:

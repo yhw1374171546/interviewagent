@@ -22,6 +22,10 @@ class Settings:
     # ── LLM ──────────────────────────────────────────
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai")
     llm_model: str = os.getenv("LLM_MODEL", "gpt-4o")
+    # 快速模型（模型路由）: 评估/JD解析/暖场/出题等高频调用用快模型，
+    # 最终报告用主模型。未配置时回退到主模型。
+    # 实测: deepseek-v4-flash 7.8s vs v4-pro 17.6s（同场景 2.3 倍差）
+    llm_fast_model: str = os.getenv("LLM_FAST_MODEL", "")
     llm_api_key: str = os.getenv("OPENAI_API_KEY", "")
     llm_base_url: str | None = os.getenv("LLM_BASE_URL") or None
     llm_temperature: float = 0.7

@@ -22,11 +22,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 
 from core.llm import LLMClient, Message, Role
+from utils.logger import get_logger
 
 from .evaluator import AnswerEvaluator, EvaluationResult, FollowUpDecision
 from .jd_parser import JDAnalysis, JDParser
@@ -39,6 +42,8 @@ from .memory_context import (
 from .question_bank import InterviewQuestion, QuestionType
 from .question_gen import InterviewPlan, QuestionGenerator
 from .report import InterviewReport, ReportGenerator
+
+logger = get_logger(__name__)
 
 # ── 序列化工具（Web 断点恢复用）────────────────────────────────
 
@@ -93,6 +98,11 @@ class InterviewState:
 
     # 跨会话记忆: 历史弱项提示（面试开始时检索，注入评估上下文）
     memory_hints: list[str] = field(default_factory=list)
+
+    # 各阶段耗时（秒，性能指标）: jd_parse / question_gen / warmup /
+    # evaluate / report — evaluate 为累计值，evaluate_count 为次数
+    timings: dict[str, float] = field(default_factory=dict)
+    evaluate_count: int = 0
 
     @property
     def current_question_num(self) -> int:
@@ -179,6 +189,7 @@ class Interviewer:
         total_questions: int = 8,
         max_follow_ups: int = 3,
         memory: InterviewMemory | None = None,
+        llm_strong: LLMClient | None = None,
     ):
         self.llm = llm_client
         self.total_questions = total_questions
@@ -189,11 +200,15 @@ class Interviewer:
         # 会话 ID（Web 层在会话创建后回填，用于记忆元数据标记）
         self.session_id = ""
 
+        # 模型路由: 高频调用（评估/JD/出题/暖场）用快模型 llm_client，
+        # 最终报告用强模型 llm_strong（未配置时回退主模型）
+        self.llm_strong = llm_strong or llm_client
+
         # 子模块
         self.jd_parser = JDParser(llm_client)
         self.question_gen = QuestionGenerator(llm_client)
         self.evaluator = AnswerEvaluator(llm_client)
-        self.report_gen = ReportGenerator(llm_client)
+        self.report_gen = ReportGenerator(self.llm_strong)
 
         # 会话状态
         self.state = InterviewState(max_follow_ups=max_follow_ups)
@@ -215,7 +230,9 @@ class Interviewer:
 
         # 1. 解析 JD
         self.state.phase = InterviewPhase.INIT
+        t0 = time.perf_counter()
         self.state.jd_analysis = await self.jd_parser.parse(jd_text)
+        self.state.timings["jd_parse"] = round(time.perf_counter() - t0, 2)
 
         # 1.5 跨会话记忆: 检索与当前 JD 技能相关的历史弱项
         #      （无历史或 ChromaDB 不可用时返回空列表，不影响主流程）
@@ -223,15 +240,17 @@ class Interviewer:
             self.state.jd_analysis.all_skills
         )
 
-        # 2. 生成题目
-        self.state.plan = await self.question_gen.generate(
+        # 2 + 3. 生成题目与暖场并行（互不依赖，各含一次 LLM 调用 —
+        #        串行会多等一个推理模型的延迟，实测可省 8-15s）
+        self.state.phase = InterviewPhase.WARMUP
+        t0 = time.perf_counter()
+        plan_task = asyncio.create_task(self.question_gen.generate(
             self.state.jd_analysis,
             total_questions=self.total_questions,
-        )
-
-        # 3. 暖场
-        self.state.phase = InterviewPhase.WARMUP
-        warmup = await self._generate_warmup()
+        ))
+        warmup_task = asyncio.create_task(self._generate_warmup())
+        self.state.plan, warmup = await asyncio.gather(plan_task, warmup_task)
+        self.state.timings["question_gen+warmup"] = round(time.perf_counter() - t0, 2)
         self.state.interview_started = True
 
         return TurnResult(
@@ -252,9 +271,17 @@ class Interviewer:
         if self.state.current_question_index >= self.state.total_questions:
             # 所有题目已答完 → 生成报告
             self.state.phase = InterviewPhase.CONCLUSION
+            t0 = time.perf_counter()
             report = await self.report_gen.generate(
                 jd=self.state.jd_analysis,
                 answers=self.state.answers,
+            )
+            self.state.timings["report"] = round(time.perf_counter() - t0, 2)
+            # 性能指标日志（面试复盘/成本观测用）
+            logger.info(
+                f"面试阶段耗时: {self.state.timings} | "
+                f"评估 {self.state.evaluate_count} 次, 平均 "
+                f"{self.state.timings.get('evaluate', 0) / max(1, self.state.evaluate_count):.1f}s"
             )
             return TurnResult(
                 phase=InterviewPhase.CONCLUSION,
@@ -314,12 +341,17 @@ class Interviewer:
         # 使追问能"翻旧账"、对历史短板重点验证
         self.state.phase = InterviewPhase.EVALUATE
         history_context = build_history_summary(self.state.answers)
+        t0 = time.perf_counter()
         evaluation = await self.evaluator.evaluate(
             question,
             answer,
             history_context=history_context,
             memory_hints=self.state.memory_hints,
         )
+        self.state.timings["evaluate"] = round(
+            self.state.timings.get("evaluate", 0) + time.perf_counter() - t0, 2,
+        )
+        self.state.evaluate_count += 1
 
         # 记录
         self.state.answers.append({
@@ -505,6 +537,8 @@ class Interviewer:
         state.phase = InterviewPhase(s.get("phase", "init"))
         state.interview_started = s.get("interview_started", False)
         state.memory_hints = s.get("memory_hints", [])
+        state.timings = s.get("timings", {})
+        state.evaluate_count = s.get("evaluate_count", 0)
 
         # 当前题目
         cur_q = s.get("current_question")

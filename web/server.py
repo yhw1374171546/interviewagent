@@ -60,37 +60,46 @@ async def index():
     return FileResponse(WEB_DIR / "static" / "index.html")
 
 
-# ── LLM 客户端（单例，懒初始化）────────────────────────────────
+# ── LLM 客户端（按模型缓存，支持模型路由）─────────────────────
 
-_llm: LLMClient | None = None
+_llm_cache: dict[str, LLMClient] = {}
 
 
-def get_llm() -> LLMClient:
+def get_llm(model: str | None = None) -> LLMClient:
     """
-    获取全局 LLM 客户端。
+    获取 LLM 客户端（按模型名缓存）。
 
+    模型路由: 高频调用（评估/JD解析/暖场/出题）用快速模型
+    （LLM_FAST_MODEL，实测 flash 比 pro 快 2.3 倍），最终报告用主模型。
     优先级: 配置的 provider → 无 Key 时降级到 Mock。
-    Mock 模式下前端会显示「演示模式」提示。
     """
-    global _llm
-    if _llm is not None:
-        return _llm
+    model = model or settings.llm_model
+    if model in _llm_cache:
+        return _llm_cache[model]
 
     provider = settings.llm_provider
     has_key = bool(settings.llm_api_key or settings.anthropic_api_key)
 
     if provider == "mock" or not has_key:
         logger.info("未配置 API Key，Web 使用 Mock LLM（演示模式）")
-        _llm = MockLLMClient()
-        return _llm
-
-    if provider == "anthropic" and settings.anthropic_api_key:
+        client = MockLLMClient()
+    elif provider == "anthropic" and settings.anthropic_api_key:
         from core.llm import AnthropicClient
-        _llm = AnthropicClient(model=settings.llm_model, api_key=settings.anthropic_api_key)
+
+        client = AnthropicClient(model=model, api_key=settings.anthropic_api_key)
     else:
         from core.llm import OpenAIClient
-        _llm = OpenAIClient(model=settings.llm_model, api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-    return _llm
+
+        client = OpenAIClient(
+            model=model, api_key=settings.llm_api_key, base_url=settings.llm_base_url,
+        )
+    _llm_cache[model] = client
+    return client
+
+
+def get_fast_llm() -> LLMClient:
+    """高频调用用的快速模型（未配置 LLM_FAST_MODEL 时回退主模型）"""
+    return get_llm(settings.llm_fast_model or settings.llm_model)
 
 
 def is_mock_mode() -> bool:
@@ -219,7 +228,10 @@ def get_interviewer(session_id: str) -> Interviewer:
         raise HTTPException(500, "会话状态快照缺失，无法恢复")
 
     interviewer = Interviewer.from_dict(
-        record.interviewer_state, get_llm(), memory=shared_memory
+        record.interviewer_state,
+        get_fast_llm(),
+        memory=shared_memory,
+        llm_strong=get_llm(settings.llm_model),
     )
     interviewer.session_id = session_id
     INTERVIEWERS[session_id] = interviewer
@@ -276,7 +288,11 @@ async def create_interview(
         raise HTTPException(400, "内容太短，请提供完整的简历或 JD")
 
     # 创建 Interviewer 并开始
-    interviewer = Interviewer(get_llm(), memory=shared_memory)
+    interviewer = Interviewer(
+        get_fast_llm(),                      # 高频调用: 评估/JD/暖场/出题
+        memory=shared_memory,
+        llm_strong=get_llm(settings.llm_model),  # 最终报告: 强模型
+    )
     try:
         turn_start = await interviewer.start(content)
         warmup_text = turn_start.message
@@ -412,6 +428,12 @@ async def get_interview(session_id: str):
         "messages": messages,
         "can_resume": can_resume,
         "mock": is_mock_mode(),
+        # 性能指标: 各阶段耗时（内存态优先，磁盘快照兜底）
+        "timings": (
+            INTERVIEWERS[session_id].state.timings
+            if session_id in INTERVIEWERS
+            else record.interviewer_state.get("state", {}).get("timings", {})
+        ),
     }
 
 

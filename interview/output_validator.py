@@ -365,6 +365,51 @@ class OutputValidator:
         return defaults.get(prop.get("type", "string"), "")
 
 
+# ── 截断 JSON 修复 ─────────────────────────────────────────────
+
+def repair_truncated_json(text: str) -> dict | None:
+    """
+    尝试修复被 max_tokens 截断的 JSON。
+
+    场景: 推理模型（如 deepseek-v4-pro）推理过长，回答 JSON 在
+    max_tokens 处被硬截断 → json.loads 失败 → 评估降级。
+    修复策略: 从尾部逐字符回退到最近的字段边界（`}` `]` `"` `,`），
+    补齐未闭合的括号后重试解析 — 保住截断前已完整的字段。
+
+    Args:
+        text: LLM 原始输出
+
+    Returns:
+        修复后的 dict（尽力而为），无法修复返回 None
+    """
+    cleaned = extract_json(text)
+    if not cleaned:
+        return None
+
+    try:
+        data = json.loads(cleaned)
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    # 尾部回退: 找最近的字段边界，补齐括号重试
+    for i in range(len(cleaned) - 1, max(0, len(cleaned) - 600), -1):
+        if cleaned[i] not in '}],':
+            continue
+        candidate = cleaned[:i + 1]
+        # 补齐未闭合的括号/引号
+        candidate += '}' * max(0, candidate.count("{") - candidate.count("}"))
+        candidate += ']' * max(0, candidate.count("[") - candidate.count("]"))
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict) and data:
+                return data
+        except json.JSONDecodeError:
+            continue
+
+    return None
+
+
 # ── 便捷函数 ────────────────────────────────────────────────────
 
 def safe_parse_json(text: str) -> tuple[dict | list | None, str | None]:

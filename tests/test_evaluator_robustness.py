@@ -219,14 +219,15 @@ class _FakeEmptyFollowUpLLM(LLMClient):
 
 class TestFollowUpEdgeCases:
 
-    def test_d1_empty_follow_up_text_gets_default(self):
-        """追问决策非 move_on 但文本为空 → 默认话术兜底"""
+    def test_d1_empty_follow_up_text_gets_contextual_default(self):
+        """追问文本为空 → 优先用未命中要点生成上下文追问（贴合题目而非通用话术）"""
         ev = run(AnswerEvaluator(_FakeEmptyFollowUpLLM()).evaluate(
             GO_GC_QUESTION, "Go 的 GC 主要使用了三色标记算法。",
         ))
         assert ev.follow_up_decision == FollowUpDecision.DEEPEN
         assert ev.follow_up_question, "追问文本不能为空"
-        assert ev.follow_up_question == _default_follow_up(FollowUpDecision.DEEPEN)
+        # 回答只命中了「三色标记」，未命中要点应出现在追问中（上下文追问）
+        assert "写屏障" in ev.follow_up_question or "混合写屏障" in ev.follow_up_question
 
     def test_d2_move_on_has_no_follow_up(self):
         assert _default_follow_up(FollowUpDecision.MOVE_ON) == ""
