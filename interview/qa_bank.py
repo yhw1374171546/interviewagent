@@ -275,5 +275,17 @@ def get_knowledge_entries() -> list[QaEntry]:
 
 
 def get_all_qa_entries() -> list[QaEntry]:
-    """内置面经 + Knowledge 知识库（RAG 全量数据源）"""
-    return QA_ENTRIES + get_knowledge_entries()
+    """内置面经 + Knowledge 知识库 + LeetCode 英文面经（RAG 全量数据源）"""
+    entries = QA_ENTRIES + get_knowledge_entries()
+    try:
+        from .leetcode_solutions import LC_QA_ENTRIES
+        for e in LC_QA_ENTRIES:
+            entries.append(QaEntry(
+                id=f"lc:{len(entries)}",
+                question=e["question"],
+                answer=e["answer"],
+                tags=e.get("tags", []),
+            ))
+    except Exception:
+        pass  # LeetCode 面经缺失不阻塞主流程
+    return entries

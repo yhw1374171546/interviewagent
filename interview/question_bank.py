@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .leetcode_bank import LC_QUESTIONS
+
 # QuestionType 定义在此处，避免 question_gen → core.llm → openai 的连锁导入
 
 
@@ -821,6 +823,27 @@ QUESTION_BANK: list[BankQuestion] = [
         },
     ),
 ]
+
+
+# ═══════════════════════════════════════════════════════════════
+#  LeetCode 精选 100 题（自动生成，合并进题库）
+# ═══════════════════════════════════════════════════════════════
+
+
+def _lc_to_bank(entry: dict) -> BankQuestion:
+    return BankQuestion(
+        id=entry["id"],
+        type=QuestionType(entry["type"]),
+        category=entry["category"],
+        question=entry["question"],
+        tags=entry["tags"],
+        expected_points=entry["expected_points"],
+        difficulty=entry["difficulty"],
+        code=entry["code"],
+    )
+
+
+QUESTION_BANK.extend(_lc_to_bank(e) for e in LC_QUESTIONS)
 
 
 # ═══════════════════════════════════════════════════════════════
