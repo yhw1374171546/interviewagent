@@ -296,6 +296,7 @@ python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
 - **[面试 Q&A 参考](docs/interview_qa.md)** — 13 道高频面试题及详细回答
 - **[技术博客](docs/blog.md)** — 《从 0 实现一个面试 Agent：混合架构、双引擎评分与容错设计》
 - **[简历定稿](docs/resume.md)** — 项目 bullet + 量化指标 + 追问预案
+- **[简历裁剪版（Agent 开发岗）](docs/resume_agent_dev.md)** — 突出 Agent 架构/多 Agent/RAG/记忆/LLM 工程化的岗位定制版
 - **[优化手段全记录](docs/optimization.md)** — 14 项优化措施及量化效果
 - **[架构设计文档](docs/architecture.md)** — 系统架构与设计决策
 
