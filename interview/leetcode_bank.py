@@ -363,7 +363,7 @@ LC_QUESTIONS = [
         "tags": ["Dynamic Programming", "Backtracking", "Tree", "Binary Search Tree", "Binary Tree"],
         "expected_points": ["Dynamic Programming", "Backtracking", "Tree", "Binary Search Tree", "Binary Tree"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def generateTrees(self, n: int) -> List[Optional[TreeNode]]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def generateTrees(self, n: int) -> List[Optional[TreeNode]]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.generateTrees(n=3))", "expected": "[[1, None, 2, None, 3], [1, None, 3, 2], [2, 1, 3], [3, 1, None, None, 2], [3, 2, None, 1]]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.generateTrees(n=1))", "expected": "[[1]]"}]},
     },
     {
         "id": "LC098",

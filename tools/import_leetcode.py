@@ -69,15 +69,25 @@ def select_100(problems: list[dict]) -> list[dict]:
 
 # ── 测试用例生成（尽力而为） ────────────────────────────────────
 
-def extract_signature(prob: dict) -> tuple[str, list[str]] | None:
-    """从 python3 code_snippet 提取 (方法名, 参数名列表)"""
+def extract_signature(prob: dict) -> tuple[str, list[tuple[str, str]]] | None:
+    """从 python3 code_snippet 提取 (方法名, [(参数名, 类型), ...])。
+
+    注意: 链表/树题的模板注释里有 `# def __init__(self, val=0, next=None)`，
+    必须限定在 `class Solution:` 之后匹配，否则会误取 __init__。
+    """
     snippets = prob.get("code_snippets") or {}
     code = snippets.get("python3", "")
-    m = re.search(r"def\s+(\w+)\s*\(self\s*,\s*([^)]*)\)", code)
+    m = re.search(r"class Solution:.*?def\s+(\w+)\s*\(self\s*,\s*([^)]*)\)", code, re.S)
     if not m:
         return None
     method = m.group(1)
-    params = [p.strip().split(":")[0].strip() for p in m.group(2).split(",") if p.strip()]
+    params = []
+    for p in m.group(2).split(","):
+        p = p.strip()
+        if not p:
+            continue
+        name, _, typ = p.partition(":")
+        params.append((name.strip(), typ.strip()))
     return method, params
 
 
@@ -112,11 +122,19 @@ def normalize_expected(text: str) -> str:
 
 
 def gen_test_cases(prob: dict) -> list[dict]:
-    """从 examples 生成测试用例；任何一步失败都返回空（走 LLM 评估）"""
+    """从 examples 生成测试用例；任何一步失败/不适合都返回空（走 LLM 评估）"""
     sig = extract_signature(prob)
     if not sig:
         return []
     method, params = sig
+    param_names = [n for n, _ in params]
+
+    # 复杂类型（链表/树等）: 判题框架无法从数组字面量构造 ListNode/TreeNode，
+    # 这类题不生成判题，走 LLM 评估（如 Add Two Numbers / Binary Tree 系列）
+    param_types = " ".join(t for _, t in params)
+    if "ListNode" in param_types or "TreeNode" in param_types:
+        return []
+
     cases = []
     for ex in prob.get("examples", []):
         inp, out = parse_example(ex.get("example_text", ""))
@@ -124,7 +142,7 @@ def gen_test_cases(prob: dict) -> list[dict]:
             return []
         kwargs = {}
         for name, val in inp.items():
-            if name not in params:
+            if name not in param_names:
                 return []
             parsed = safe_literal(val)
             if parsed is None:
