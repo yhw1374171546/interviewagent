@@ -536,6 +536,18 @@ async def ability_profile():
     return profile.to_dict()
 
 
+@app.get("/api/qa/search")
+async def qa_search(q: str = "", top_k: int = 3):
+    """面经检索（RAG 检索环节演示）：按关键词/语义相似度返回相关面经"""
+    from interview.qa_bank import QaRetriever
+
+    query = q.strip()
+    if not query:
+        raise HTTPException(400, "缺少查询词 q，例如 /api/qa/search?q=GIL")
+    results = QaRetriever().retrieve(query, top_k=top_k)
+    return {"query": query, "count": len(results), "results": results}
+
+
 @app.get("/api/stats")
 async def global_stats():
     """

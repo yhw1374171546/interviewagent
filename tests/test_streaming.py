@@ -184,7 +184,7 @@ class TestGenerateStream:
         assert top[0] == "基础扎实"  # 出现 2 次，最频繁
 
     def test_reference_answers_fallback(self):
-        """无 LLM 参考答案时 → 用题库期望要点兜底，保证报告总有参考答案"""
+        """无 LLM 参考答案时 → RAG 检索面经库兜底，保证报告总有参考答案"""
         gen = ReportGenerator(FakeStreamLLM(chunks=["建议"]))
 
         async def scenario():
@@ -196,8 +196,10 @@ class TestGenerateStream:
         events = run(scenario())
         final = events[-1]["report"]
         assert final.reference_answers  # 兜底生成了参考答案
-        assert "GIL定义" in final.reference_answers[0]["answer"]
-        # 逐题详情也带上答题要点
+        # RAG：题目「解释 GIL」应检索到面经库 QA001（真实面经答案，非关键词要点）
+        assert "GIL" in final.reference_answers[0]["answer"]
+        assert final.reference_answers[0].get("source") == "面经库"
+        # 逐题详情仍带上答题要点
         assert "GIL定义" in final.details[0]["expected_points"]
 
 

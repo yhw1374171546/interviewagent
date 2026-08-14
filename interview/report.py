@@ -388,17 +388,29 @@ class ReportGenerator:
 
     def _build_fallback_reference(self, answers: list[dict]) -> list[dict]:
         """
-        参考答案兜底：无 LLM（Mock/降级）时，用题库期望要点拼成简要答案。
-        保证"面试结束后总能看到该怎么答"，而不是只有一句"你漏了 X"。
+        参考答案（RAG 增强）：优先检索面经库（真实面经内容），
+        检索不到再用题库期望要点兜底。零 LLM 依赖、零向量库依赖，离线可复现。
         """
+        from .qa_bank import QaRetriever
+
+        retriever = QaRetriever()
         refs = []
         for a in answers:
             q = a.get("question")
-            points = q.expected_points if isinstance(q, InterviewQuestion) else []
-            if not points:
-                continue
-            refs.append({
-                "question": q.question if isinstance(q, InterviewQuestion) else str(q),
-                "answer": "答题要点：" + "、".join(points) + "。",
-            })
+            q_text = q.question if isinstance(q, InterviewQuestion) else str(q)
+            hits = retriever.retrieve(q_text, top_k=1)
+            if hits:
+                refs.append({
+                    "question": q_text,
+                    "answer": hits[0]["answer"],
+                    "source": "面经库",
+                })
+            else:
+                points = q.expected_points if isinstance(q, InterviewQuestion) else []
+                if not points:
+                    continue
+                refs.append({
+                    "question": q_text,
+                    "answer": "答题要点：" + "、".join(points) + "。",
+                })
         return refs
