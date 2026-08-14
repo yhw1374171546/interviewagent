@@ -102,6 +102,12 @@ class InterviewState:
     # 跨会话记忆: 历史弱项提示（面试开始时检索，注入评估上下文）
     memory_hints: list[str] = field(default_factory=list)
 
+    # 自适应难度（D2）: 按已答表现动态调整题目难度
+    adaptive_enabled: bool = False
+    adaptive_candidates: dict[str, list] = field(default_factory=dict)  # qtype → 候选池
+    adaptive_used_ids: set[str] = field(default_factory=set)            # 已用/已替换题目
+    adaptive_adjustments: list[dict] = field(default_factory=list)      # 留痕 [{index, from, to, reason}]
+
     # 各阶段耗时（秒，性能指标）: jd_parse / question_gen / warmup /
     # evaluate / report — evaluate 为累计值，evaluate_count 为次数
     timings: dict[str, float] = field(default_factory=dict)
@@ -197,6 +203,7 @@ class Interviewer:
         memory: InterviewMemory | None = None,
         llm_strong: LLMClient | None = None,
         defer_report: bool = False,
+        adaptive_enabled: bool = False,
     ):
         self.llm = llm_client
         self.total_questions = total_questions
@@ -204,6 +211,8 @@ class Interviewer:
         # 延迟报告: True 时面试结束不再内联生成报告，改由 stream_report() 流式生成
         # （Web SSE 路径用；CLI/测试默认 False，保持原内联报告行为）
         self.defer_report = defer_report
+        # 自适应难度: True 时按已答表现动态调整题目难度（D2 特性）
+        self.adaptive_enabled = adaptive_enabled
 
         # 跨会话记忆（可选 — ChromaDB 不可用时自动降级进程内存储）
         self.memory = memory if memory is not None else InterviewMemory()
@@ -291,6 +300,10 @@ class Interviewer:
         self._record_stage("question_gen+warmup", t0, self.llm, snap_before)
         self.state.interview_started = True
 
+        # 自适应难度: 构建各类型候选池（同类型 + 同技能方向），供后续替换
+        if self.adaptive_enabled:
+            self._init_adaptive_pool()
+
         return TurnResult(
             phase=InterviewPhase.WARMUP,
             message=warmup,
@@ -343,6 +356,11 @@ class Interviewer:
         self.state.phase = InterviewPhase.QUESTION
 
         question = self.state.plan.questions[self.state.current_question_index]
+
+        # ── 自适应难度（D2）: 按已答表现调整当前题难度 ──
+        if self.adaptive_enabled:
+            question = self._apply_adaptive_difficulty(question)
+
         self.state.current_question = question
 
         type_labels = {
@@ -366,6 +384,81 @@ class Interviewer:
             progress=self.state.progress,
             is_finished=False,
         )
+
+    # ── 自适应难度（D2）──────────────────────────────────
+
+    def _init_adaptive_pool(self) -> None:
+        """构建各题型候选池: 同类型 + 与 JD 技能有标签重叠的题库题"""
+        from .adaptive import build_candidate_pool
+        from .question_bank import QUESTION_BANK
+
+        skills = (
+            self.state.jd_analysis.all_skills
+            + self.state.jd_analysis.soft_skills
+            + self.state.jd_analysis.interview_focus
+        )
+        pool: dict[QuestionType, list] = {}
+        for q in QUESTION_BANK:
+            pool.setdefault(q.type, []).append(q)
+        self.state.adaptive_candidates = {
+            str(qtype): build_candidate_pool(bank, qtype, skills)
+            for qtype, bank in pool.items()
+        }
+
+    def _apply_adaptive_difficulty(
+        self,
+        question,
+    ) -> InterviewQuestion:
+        """
+        按已答表现调整当前题难度（确定性规则）。
+
+        已答记录 → 平均分 → 目标难度 → 同类型候选里找替换题。
+        找不到合适替换 → 保持原题（不折腾，面试不中断）。
+        替换留痕到 adaptive_adjustments（可观测/面试叙事用）。
+        """
+        from .adaptive import compute_target_difficulty, pick_replacement
+
+        scores = [a.get("evaluation").total_score for a in self.state.answers
+                  if a.get("evaluation") is not None]
+        if not scores:
+            return question  # 第一题不调整
+
+        target = compute_target_difficulty(scores, question.difficulty)
+        if target == question.difficulty:
+            return question
+
+        candidates = self.state.adaptive_candidates.get(str(question.type), [])
+        exclude = self.state.adaptive_used_ids | {q.id for q in self.state.plan.questions}
+        replacement = pick_replacement(
+            question, target, candidates, exclude_ids=exclude,
+        )
+        if replacement is None:
+            return question
+
+        from .question_bank import InterviewQuestion
+
+        new_q = InterviewQuestion(
+            id=replacement.id,
+            type=replacement.type,
+            category=replacement.category,
+            question=replacement.question,
+            expected_points=replacement.expected_points,
+            difficulty=replacement.difficulty,
+            follow_up_hints=replacement.follow_up_hints,
+            source="adaptive",
+            code=replacement.code,
+            tags=replacement.tags,
+        )
+        self.state.adaptive_used_ids.add(new_q.id)
+        self.state.adaptive_adjustments.append({
+            "index": self.state.current_question_index + 1,
+            "from_difficulty": question.difficulty,
+            "to_difficulty": new_q.difficulty,
+            "from_id": question.id,
+            "to_id": new_q.id,
+            "reason": f"已答平均 {sum(scores) / len(scores):.1f} 分",
+        })
+        return new_q
 
     async def submit_answer(self, answer: str) -> TurnResult:
         """

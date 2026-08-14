@@ -159,6 +159,7 @@ agent/
 | **多 LLM Provider** | 统一接口适配 OpenAI/Anthropic/Ollama，支持 Structure Output + Streaming + Prompt Caching |
 | **生产级可靠性** | 指数退避重试 + 熔断器 + 降级链 + 自动保存恢复 + 系统健康检查 |
 | **Prompt 注入防护** | 确定性规则检测面试者回答中的注入内容（评分操纵/越狱/提示词泄露等，中英双语模式），评估/追问/报告三处 LLM 出口拦截 + 降分 + 留痕，0 API 调用 |
+| **自适应难度** | 按已答表现动态调整题目难度（答好升级/答差降级，同类型替换），留痕可观测，默认关闭不破坏既有流程 |
 | **多 Agent 编排** | 支持串行管道、并行汇总、多方辩论三种协作模式 |
 | **多会话管理** | JSON 持久化 + ChromaDB 向量存储 + 跨会话对比分析 + 面试中断恢复 |
 | **能力画像** | 跨会话聚合每个技能分类的强弱项与进步趋势（侧边栏「📊 能力画像」），画像弱项自动注入下一场面试的追问决策 |
@@ -284,11 +285,11 @@ eval→fix→re-eval 闭环后 MAE 下降 37%。
 ## 测试与覆盖率
 
 ```bash
-python -m pytest tests/ -q                    # 276 个测试，全离线可跑（Mock/FakeLLM）
+python -m pytest tests/ -q                    # 294 个测试，全离线可跑（Mock/FakeLLM）
 python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
 ```
 
-- **276 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
+- **294 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
 - **核心模块覆盖率 87%**（`interview/` 面试链路 + `core/` LLM 基础设施层），CI 以 80% 为门禁
 - 覆盖：评估器健壮性、记忆、可观测性、LLM-as-judge 评测、流式输出（SSE）、
   JD 解析、题库检索、题目生成、状态机、会话管理、输出校验、代码判题、重试熔断、
