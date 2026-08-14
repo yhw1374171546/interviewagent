@@ -428,6 +428,11 @@ function questionCard(m) {
 function evalCard(ev) {
   const card = document.createElement("div");
   card.className = "eval-card";
+  // 代码题 → LeetCode 式判题结果（AC/WA + 用例数 + 耗时），不套用四维度评分
+  if (ev.code_judge) {
+    card.innerHTML = codeJudgeCard(ev.code_judge);
+    return card;
+  }
   card.innerHTML = `
     <div class="eval-score-row">
       <span class="eval-score">${ev.total_score}</span>
@@ -440,7 +445,6 @@ function evalCard(ev) {
       ${dimBar("结构", ev.structure)}
       ${dimBar("相关性", ev.relevance)}
     </div>
-    ${ev.code_judge ? judgeResultCard(ev.code_judge) : ""}
     ${ev.overall_comment ? `<div class="eval-comment">💬 ${ev.overall_comment}</div>` : ""}
     <div class="eval-tags">
       ${(ev.strengths || []).map((s) => `<span class="eval-tag">👍 ${s}</span>`).join("")}
@@ -449,22 +453,23 @@ function evalCard(ev) {
   return card;
 }
 
-// 判题结果：逐个测试用例的 pass/fail 列表
-function judgeResultCard(j) {
+// LeetCode 式判题结果卡片：AC/WA + 通过用例数 + 耗时 + 逐用例
+function codeJudgeCard(j) {
+  const isAC = j.passed;
+  const timeText = j.execution_time_ms ? ` · ${j.execution_time_ms} ms` : "";
   const rows = (j.details || []).map((d) => {
     const icon = d.passed ? "✅" : "❌";
     const extra = d.passed
       ? ""
       : d.error
         ? ` — ${d.error}`
-        : ` — 期望 ${d.expected ?? ""}，实际 ${d.got ?? ""}`;
+        : ` — expected ${d.expected ?? ""}, actual ${d.got ?? ""}`;
     return `<div class="judge-case ${d.passed ? "pass" : "fail"}">${icon} ${d.name}${extra}</div>`;
   }).join("");
   return `
-    <div class="judge-box">
-      <div class="judge-summary">🧪 判题结果：通过 ${j.passed_tests}/${j.total_tests}</div>
-      ${rows}
-    </div>`;
+    <div class="judge-verdict ${isAC ? "ac" : "wa"}">${isAC ? "✅ Accepted" : "❌ Wrong Answer"}</div>
+    <div class="judge-meta">${j.passed_tests}/${j.total_tests} 用例通过${timeText}</div>
+    <div class="judge-box">${rows}</div>`;
 }
 
 function dimBar(name, score) {

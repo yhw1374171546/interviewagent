@@ -424,9 +424,12 @@ class AnswerEvaluator:
 
         return EvaluationResult(
             correctness=correctness,
-            depth=5,
-            structure=5,
-            relevance=8 if correctness >= 6 else 5,
+            # 代码题不适用"深度/结构/相关性"维度，均取正确性值，
+            # 使 total_score = correctness（四维权重和 = 1.0），
+            # 即"全过 = 10 分"，避免"代码全对却只得 7 分"的困惑
+            depth=correctness,
+            structure=correctness,
+            relevance=correctness,
             overall_comment=comment,
             strengths=strengths,
             weaknesses=weaknesses,
@@ -443,6 +446,7 @@ class AnswerEvaluator:
                 "passed_tests": judge.passed_tests,
                 "failed_tests": judge.failed_tests,
                 "errors": judge.errors,
+                "execution_time_ms": judge.execution_time_ms,
                 "details": judge.details,
             },
         )

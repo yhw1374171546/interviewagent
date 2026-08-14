@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 
 # ── 测试用例定义 ──────────────────────────────────────────────
@@ -422,6 +423,7 @@ async def run_judge(
             stderr=asyncio.subprocess.PIPE,
         )
 
+        t0 = time.perf_counter()
         try:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout
@@ -435,12 +437,15 @@ async def run_judge(
                 errors=1,
                 details=[{"name": "超时", "passed": False, "error": f"代码执行超过 {timeout} 秒"}],
             )
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
         stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
 
         # 6. 解析测试结果
-        return _parse_test_output(stdout, stderr, question)
+        result = _parse_test_output(stdout, stderr, question)
+        result.execution_time_ms = elapsed_ms
+        return result
 
     finally:
         # 清理临时源码与编译产物
@@ -508,6 +513,7 @@ async def _run_acm(
         details = []
         passed = 0
         failed = 0
+        total_elapsed_ms = 0
         for i, tc in enumerate(question.test_cases):
             proc = await asyncio.create_subprocess_exec(
                 *run_cmd,
@@ -515,6 +521,7 @@ async def _run_acm(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            t0 = time.perf_counter()
             try:
                 stdout_bytes, _ = await asyncio.wait_for(
                     proc.communicate(input=tc.input_code.encode("utf-8")),
@@ -526,6 +533,7 @@ async def _run_acm(
                 failed += 1
                 details.append({"name": tc.name, "passed": False, "error": "超时"})
                 continue
+            total_elapsed_ms += int((time.perf_counter() - t0) * 1000)
 
             out = stdout_bytes.decode("utf-8", errors="replace").strip()
             if out == tc.expected:
@@ -547,6 +555,7 @@ async def _run_acm(
             failed_tests=failed,
             errors=0,
             details=details,
+            execution_time_ms=total_elapsed_ms,
         )
 
     finally:
