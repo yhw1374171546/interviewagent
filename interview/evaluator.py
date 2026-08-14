@@ -33,7 +33,7 @@ from core.llm import LLMClient, Message, Role
 from utils.logger import get_logger
 
 from .output_validator import repair_truncated_json
-from .question_bank import InterviewQuestion
+from .question_bank import InterviewQuestion, QuestionType
 
 logger = get_logger(__name__)
 
@@ -93,6 +93,10 @@ class EvaluationResult:
     keyword_match_rate: float = 0.0
     matched_points: list[str] = field(default_factory=list)
     missed_points: list[str] = field(default_factory=list)
+
+    # 编程题判题结果（非编程题为 None）:
+    # {"passed", "total_tests", "passed_tests", "failed_tests", "errors", "details"}
+    code_judge: dict | None = None
 
     @property
     def total_score(self) -> float:
@@ -211,6 +215,10 @@ class AnswerEvaluator:
                 matched_points=[], missed_points=question.expected_points or [],
                 keyword_match_rate=0.0,
             )
+
+        # ── 编程题 → 沙箱判题（真实执行测试用例，不适用自然语言的关键词/复读检测）──
+        if question.type == QuestionType.CODING and question.code:
+            return await self._evaluate_code(question, answer)
 
         # ── 边界 2: 超短回答 ──
         if len(answer) < 20:
@@ -345,6 +353,94 @@ class AnswerEvaluator:
             keyword_match_rate=match_rate if match_rate is not None else 0.5,
             matched_points=matched,
             missed_points=missed,
+        )
+
+    async def _evaluate_code(
+        self,
+        question: InterviewQuestion,
+        answer: str,
+    ) -> EvaluationResult:
+        """
+        编程题沙箱判题 — 真实执行测试用例，pass/fail 事实覆盖正确性。
+
+        代码题不适用自然语言的「关键词/复读」检测，直接交给 code_judge：
+        通过率决定正确性，编译/安全/超时给最低分并提示。
+        """
+        from .code_judge import CodeQuestion, TestCase, run_judge
+
+        code_meta = question.code or {}
+        language = code_meta.get("language", "python")
+        code_question = CodeQuestion(
+            id=question.id,
+            title=question.category,
+            description=question.question,
+            function_signature=code_meta.get("function_signature", ""),
+            example_input="",
+            example_output="",
+            test_cases=[TestCase(**tc) for tc in code_meta.get("test_cases", [])],
+        )
+
+        try:
+            judge = await run_judge(answer, code_question, language=language)
+        except Exception as e:  # 判题器自身异常 → 不中断面试，降级为提示
+            return EvaluationResult(
+                correctness=3, depth=5, structure=5, relevance=5,
+                overall_comment=f"判题服务异常，无法执行代码: {type(e).__name__}",
+                weaknesses=["判题服务不可用"],
+                follow_up_decision=FollowUpDecision.MOVE_ON,
+            )
+
+        total = max(1, judge.total_tests)
+        rate = judge.passed_tests / total
+
+        # 编译/安全/超时 → 最低分；否则正确性 = 1 + 通过率×9（1~10）
+        hard_fail = judge.errors > 0 and not judge.details
+        first_name = judge.details[0].get("name", "") if judge.details else ""
+        if hard_fail or first_name in ("安全检查", "编译错误", "超时", "不支持的语言"):
+            correctness = 1
+            comment = f"❌ {first_name}: {judge.details[0].get('error', '')[:120]}"
+            decision = FollowUpDecision.DEEPEN
+            follow_up = "代码未能执行，请检查后重新提交。"
+            strengths, weaknesses = [], ["代码无法执行"]
+        elif judge.passed:
+            correctness = 10
+            comment = f"✅ 通过全部 {judge.passed_tests}/{judge.total_tests} 个测试用例"
+            decision = FollowUpDecision.MOVE_ON
+            follow_up = ""
+            strengths, weaknesses = ["全部测试用例通过"], []
+        else:
+            correctness = round(1 + rate * 9)
+            comment = (
+                f"⚠️ 通过 {judge.passed_tests}/{judge.total_tests} 个测试用例，"
+                f"还有 {judge.failed_tests} 个未通过"
+            )
+            decision = FollowUpDecision.DEEPEN
+            follow_up = "有测试用例未通过，请修复后重新提交。"
+            strengths, weaknesses = [], ["部分测试用例未通过"]
+
+        return EvaluationResult(
+            correctness=correctness,
+            depth=5,
+            structure=5,
+            relevance=8 if correctness >= 6 else 5,
+            overall_comment=comment,
+            strengths=strengths,
+            weaknesses=weaknesses,
+            follow_up_decision=decision,
+            follow_up_question=follow_up,
+            follow_up_reason=f"测试通过率 {judge.passed_tests}/{judge.total_tests}",
+            keyword_match_rate=rate,
+            matched_points=[],
+            missed_points=[],
+            code_judge={
+                "language": language,
+                "passed": judge.passed,
+                "total_tests": judge.total_tests,
+                "passed_tests": judge.passed_tests,
+                "failed_tests": judge.failed_tests,
+                "errors": judge.errors,
+                "details": judge.details,
+            },
         )
 
     # ── 边界检测辅助 ────────────────────────────────────

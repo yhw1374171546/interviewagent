@@ -637,6 +637,7 @@ class Interviewer:
                 follow_up_hints=q.get("follow_up_hints", []),
                 time_limit=q.get("time_limit", 0),
                 source=q.get("source", ""),
+                code=q.get("code"),
             ))
         state.plan = InterviewPlan(
             questions=questions,
@@ -666,6 +667,7 @@ class Interviewer:
                 difficulty=cur_q.get("difficulty", 3),
                 follow_up_hints=cur_q.get("follow_up_hints", []),
                 source=cur_q.get("source", ""),
+                code=cur_q.get("code"),
             )
 
         # 答题记录（含评估）
@@ -681,6 +683,7 @@ class Interviewer:
                 difficulty=q_data.get("difficulty", 3),
                 follow_up_hints=q_data.get("follow_up_hints", []),
                 source=q_data.get("source", ""),
+                code=q_data.get("code"),
             )
 
             evaluation = None
@@ -700,6 +703,7 @@ class Interviewer:
                     keyword_match_rate=ev.get("keyword_match_rate", 0.0),
                     matched_points=ev.get("matched_points", []),
                     missed_points=ev.get("missed_points", []),
+                    code_judge=ev.get("code_judge"),
                 )
             state.answers.append({
                 "question": question,

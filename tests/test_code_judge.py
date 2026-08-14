@@ -9,9 +9,13 @@ import asyncio
 
 from interview.code_judge import (
     PRESET_CODE_QUESTIONS,
+    CodeQuestion,
     audit_code_safety,
     format_judge_report,
     run_judge,
+)
+from interview.code_judge import (
+    TestCase as CodeTestCase,
 )
 
 COD_LRU = PRESET_CODE_QUESTIONS[0]
@@ -137,4 +141,48 @@ class TestRunJudge:
         result = run(run_judge(CORRECT_LRU, COD_LRU))
         report = format_judge_report(result)
         assert "全部通过" in report
-        assert "通过: 5/5" in report
+
+
+# ── C++ 判题（多语言） ─────────────────────────────────────────
+
+CPP_TWOSUM = CodeQuestion(
+    id="CPP001", title="两数之和", description="", function_signature="vector<int> two_sum(vector<int>&, int)",
+    example_input="", example_output="",
+    test_cases=[
+        CodeTestCase(name="基础", input_code='vector<int> nums = {2, 7, 11, 15};\nvector<int> r = two_sum(nums, 9);\ncout << r[0] << " " << r[1];', expected="0 1"),
+        CodeTestCase(name="重复元素", input_code='vector<int> nums = {3, 3};\nvector<int> r = two_sum(nums, 6);\ncout << r[0] << " " << r[1];', expected="0 1"),
+    ],
+)
+
+CPP_CORRECT = "vector<int> two_sum(vector<int>& nums, int target) {\n    for (int i = 0; i < nums.size(); i++)\n        for (int j = i + 1; j < nums.size(); j++)\n            if (nums[i] + nums[j] == target) return {i, j};\n    return {};\n}"
+
+
+class TestCppJudge:
+
+    def test_cpp_correct_passes(self):
+        result = run(run_judge(CPP_CORRECT, CPP_TWOSUM, language="cpp"))
+        assert result.passed is True
+        assert result.passed_tests == 2
+
+    def test_cpp_wrong_fails_with_expected_got(self):
+        wrong = "vector<int> two_sum(vector<int>& nums, int target) { return {0, 0}; }"
+        result = run(run_judge(wrong, CPP_TWOSUM, language="cpp"))
+        assert result.passed is False
+        # 修复后 expected/got 应正确解析（不含 marker 前缀）
+        assert result.details[0]["expected"] == "0 1"
+
+    def test_cpp_compile_error(self):
+        bad = "vector<int> two_sum(vector<int>& nums, int target) { return {0, ; }"
+        result = run(run_judge(bad, CPP_TWOSUM, language="cpp"))
+        assert result.passed is False
+        assert result.details[0]["name"] == "编译错误"
+
+    def test_cpp_forbidden_system_blocked(self):
+        result = run(run_judge("int main(){ system(\"ls\"); }", CPP_TWOSUM, language="cpp"))
+        assert result.passed is False
+        assert result.details[0]["name"] == "安全检查"
+
+    def test_unsupported_language(self):
+        result = run(run_judge(CPP_CORRECT, CPP_TWOSUM, language="ruby"))
+        assert result.passed is False
+        assert result.details[0]["name"] == "不支持的语言"

@@ -149,6 +149,7 @@ def question_to_dict(q) -> dict:
         "category": q.category,
         "question": q.question,
         "difficulty": q.difficulty,
+        "code": q.code,  # 编程题判题元数据（语言/签名/测试用例），非编程题为 None
     }
 
 
@@ -169,6 +170,7 @@ def evaluation_to_dict(ev) -> dict | None:
         "keyword_match_rate": ev.keyword_match_rate,
         "matched_points": ev.matched_points,
         "missed_points": ev.missed_points,
+        "code_judge": ev.code_judge,  # 编程题判题结果（非编程题为 None）
     }
 
 

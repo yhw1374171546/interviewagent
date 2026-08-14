@@ -83,6 +83,24 @@
   </div>
 </div>
 
+<!-- 代码编辑器弹窗（编程题专用） -->
+<div id="code-modal" class="modal-overlay code-overlay" hidden>
+  <div class="code-modal">
+    <div class="code-modal-header">
+      <div class="code-modal-title">💻 编写代码</div>
+      <span id="code-lang" class="code-lang-badge"></span>
+      <button id="code-close" class="code-close" title="关闭">✕</button>
+    </div>
+    <pre id="code-signature" class="code-signature"></pre>
+    <textarea id="code-editor" class="code-editor" spellcheck="false"
+      placeholder="在这里编写你的代码…"></textarea>
+    <div class="code-modal-actions">
+      <button id="code-cancel" class="btn-secondary">取消</button>
+      <button id="code-submit" class="btn-primary">▶ 运行并提交</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>

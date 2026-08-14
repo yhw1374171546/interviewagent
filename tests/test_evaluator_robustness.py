@@ -255,3 +255,49 @@ class TestFullPipeline:
         assert irrelevant.depth < 8, "无关长文不能拿高深度分"
         assert spam.depth != irrelevant.depth
         assert spam.total_score != irrelevant.total_score
+
+
+# ═══════════════ 编程题沙箱判题（阶段：code_judge 接入） ═══════════════
+
+CODING_QUESTION = InterviewQuestion(
+    id="COD001",
+    type=QuestionType.CODING,
+    category="数据结构",
+    question="实现 LRU 缓存",
+    expected_points=["哈希表+双向链表"],
+    difficulty=3,
+    code={
+        "language": "python",
+        "function_signature": "class LRUCache:\n    def __init__(self, capacity: int): ...",
+        "test_cases": [
+            {"name": "基本", "input_code": "cache = LRUCache(1)\ncache.put(1, 1)\nprint(cache.get(1))", "expected": "1"},
+            {"name": "淘汰", "input_code": "cache = LRUCache(1)\ncache.put(1, 1)\ncache.put(2, 2)\nprint(cache.get(1))\nprint(cache.get(2))", "expected": "-1\n2"},
+        ],
+    },
+)
+
+CORRECT_CODE = "from collections import OrderedDict\nclass LRUCache:\n    def __init__(self, capacity):\n        self.c = capacity\n        self.d = OrderedDict()\n    def get(self, key):\n        if key not in self.d: return -1\n        self.d.move_to_end(key)\n        return self.d[key]\n    def put(self, key, value):\n        if key in self.d: self.d.move_to_end(key)\n        self.d[key] = value\n        if len(self.d) > self.c: self.d.popitem(last=False)\n"
+
+
+class TestCodeJudgeInEvaluator:
+    """coding 题走沙箱判题，pass/fail 覆盖正确性，结果透出到 EvaluationResult"""
+
+    def test_correct_code_gets_full_correctness(self):
+        ev = run(AnswerEvaluator(MockLLMClient()).evaluate(CODING_QUESTION, CORRECT_CODE))
+        assert ev.code_judge is not None
+        assert ev.code_judge["passed"] is True
+        assert ev.correctness == 10
+
+    def test_wrong_code_gets_low_correctness(self):
+        bad = "class LRUCache:\n    def __init__(self, c): self.d = {}\n    def get(self, k): return -1\n    def put(self, k, v): self.d[k] = v\n"
+        ev = run(AnswerEvaluator(MockLLMClient()).evaluate(CODING_QUESTION, bad))
+        assert ev.code_judge is not None
+        assert ev.code_judge["passed"] is False
+        assert ev.correctness < 10
+        assert ev.follow_up_decision == FollowUpDecision.DEEPEN
+
+    def test_code_judge_not_triggered_for_non_coding(self):
+        ev = run(AnswerEvaluator(MockLLMClient()).evaluate(
+            GO_GC_QUESTION, "三色标记 写屏障 混合写屏障 GC触发条件 GC调优" * 2,
+        ))
+        assert ev.code_judge is None

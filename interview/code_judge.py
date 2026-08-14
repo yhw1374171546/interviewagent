@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -199,16 +200,55 @@ FORBIDDEN_CALLS = {
 }
 
 
-def audit_code_safety(code: str) -> tuple[bool, str]:
+# ── 多语言支持 ──────────────────────────────────────────────────
+# Python 用 AST 白名单（强）；C++ 无内置 AST 解析器，用黑名单 + 超时
+# （demo 级简化安全，重点是超时与输出比对）。
+
+LANGUAGES: dict[str, dict] = {
+    "python": {"ext": ".py", "label": "Python", "compiled": False},
+    "cpp": {"ext": ".cpp", "label": "C++", "compiled": True},
+}
+
+# C++ 黑名单（聚焦文件/进程/网络等危险 API）
+_CPP_FORBIDDEN = [
+    "system(", "popen(", "fork(", "exec", "socket(", "ofstream", "ifstream",
+    "fopen(", "freopen(", "mmap(", "dlopen", "setuid", "unistd.h",
+]
+
+
+def _compile_command(language: str, src_path: str, exe_path: str) -> list[str] | None:
+    """返回编译命令；解释型语言返回 None（无需编译）"""
+    if language == "cpp":
+        return ["g++", "-std=c++17", src_path, "-o", exe_path]
+    return None
+
+
+def _runner_command(language: str, src_path: str, exe_path: str) -> list[str]:
+    """返回执行命令（解释型直接跑源码，编译型跑编译产物）"""
+    if language == "python":
+        return [sys.executable, src_path]
+    if language == "cpp":
+        return [exe_path]
+    raise ValueError(f"不支持的编程语言: {language}")
+
+
+def audit_code_safety(code: str, language: str = "python") -> tuple[bool, str]:
     """
-    AST 白名单安全审计。
+    代码安全审计。
+
+    - python: AST 白名单（强）
+    - cpp: 黑名单 + 超时（demo 级简化）
 
     Args:
         code: 用户提交的代码
+        language: 编程语言（python / cpp）
 
     Returns:
         (是否安全, 错误信息)
     """
+    if language == "cpp":
+        return _audit_cpp(code)
+
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
@@ -247,6 +287,15 @@ def audit_code_safety(code: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _audit_cpp(code: str) -> tuple[bool, str]:
+    """C++ 黑名单安全审计（demo 级，真正的隔离靠 subprocess 超时）"""
+    lowered = code.lower()
+    for forbidden in _CPP_FORBIDDEN:
+        if forbidden in lowered:
+            return False, f"禁止使用的语法/模块: {forbidden}"
+    return True, ""
+
+
 def _get_attr_name(node: ast.Attribute) -> str:
     """递归获取 ast.Attribute 的完整名称，如 a.b.c"""
     parts = []
@@ -279,29 +328,41 @@ async def run_judge(
     user_code: str,
     question: CodeQuestion,
     timeout_sec: int | None = None,
+    language: str = "python",
 ) -> JudgeResult:
     """
     执行代码判题。
 
     流程:
-        1. 写入用户代码到临时文件
-        2. 追加测试代码
-        3. subprocess 隔离执行
-        4. 比较 stdout 与预期输出
-        5. 返回测试报告
+        1. 安全检查（Python=AST 白名单，JS=黑名单+超时）
+        2. 写入用户代码到临时文件
+        3. 追加测试代码
+        4. subprocess 隔离执行
+        5. 比较 stdout 与预期输出
+        6. 返回测试报告
 
     Args:
         user_code: 用户提交的代码
         question: 编程题（包含测试用例）
         timeout_sec: 超时时间
+        language: 编程语言（python / javascript）
 
     Returns:
         JudgeResult: 完整的判题结果
     """
     timeout = timeout_sec or question.time_limit_sec
 
+    # 0. 语言支持检查
+    if language not in LANGUAGES:
+        return JudgeResult(
+            passed=False,
+            total_tests=len(question.test_cases),
+            errors=1,
+            details=[{"name": "不支持的语言", "passed": False, "error": f"不支持: {language}"}],
+        )
+
     # 1. 安全检查
-    safe, err_msg = audit_code_safety(user_code)
+    safe, err_msg = audit_code_safety(user_code, language)
     if not safe:
         return JudgeResult(
             passed=False,
@@ -311,19 +372,42 @@ async def run_judge(
         )
 
     # 2. 构建完整测试脚本
-    test_script = _build_test_script(user_code, question)
+    test_script = _build_test_script(user_code, question, language)
 
-    # 3. 写入临时文件
+    # 3. 写入临时源码文件
+    ext = LANGUAGES[language]["ext"]
     with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".py", delete=False, encoding="utf-8"
+        mode="w", suffix=ext, delete=False, encoding="utf-8"
     ) as f:
         f.write(test_script)
-        tmp_path = f.name
+        src_path = f.name
 
+    exe_path = None
     try:
-        # 4. subprocess 隔离执行
+        # 4. 编译（编译型语言；解释型语言跳过）
+        compile_cmd = _compile_command(language, src_path, src_path + ".exe")
+        if compile_cmd is not None:
+            exe_path = src_path + ".exe"
+            compile_proc = await asyncio.create_subprocess_exec(
+                *compile_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, compile_err = await compile_proc.communicate()
+            if compile_proc.returncode != 0:
+                err_text = compile_err.decode("utf-8", errors="replace").strip()
+                return JudgeResult(
+                    passed=False,
+                    total_tests=len(question.test_cases),
+                    errors=1,
+                    details=[{"name": "编译错误", "passed": False, "error": err_text[:300]}],
+                    stderr=err_text[:500],
+                )
+
+        # 5. subprocess 隔离执行
+        run_cmd = _runner_command(language, src_path, exe_path or "")
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, tmp_path,
+            *run_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -345,25 +429,34 @@ async def run_judge(
         stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
 
-        # 5. 解析测试结果
+        # 6. 解析测试结果
         return _parse_test_output(stdout, stderr, question)
 
     finally:
-        # 清理临时文件
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        # 清理临时源码与编译产物
+        for path in (src_path, exe_path):
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
 
-def _build_test_script(user_code: str, question: CodeQuestion) -> str:
+def _build_test_script(user_code: str, question: CodeQuestion, language: str = "python") -> str:
     """
-    构建完整的测试脚本。
+    构建完整测试脚本（按语言分派）。
 
     关键设计: 每个测试用例的 stdout 被重定向捕获，与期望输出做
     **字符串比较** — 判题依据是真实输出匹配，而不是"代码没抛异常"。
     （旧实现只检查异常，bug 代码不抛异常也会被判通过）
     """
+    if language == "cpp":
+        return _build_cpp_script(user_code, question)
+    return _build_python_script(user_code, question)
+
+
+def _build_python_script(user_code: str, question: CodeQuestion) -> str:
+    """构建 Python 测试脚本（重定向 stdout + markers）"""
     lines = [
         "# -*- coding: utf-8 -*-",
         "# 自动生成的测试脚本",
@@ -399,6 +492,43 @@ def _build_test_script(user_code: str, question: CodeQuestion) -> str:
     return "\n".join(lines)
 
 
+def _build_cpp_script(user_code: str, question: CodeQuestion) -> str:
+    """构建 C++ 测试脚本（stringstream 重定向 cout + markers）"""
+    lines = [
+        "#include <bits/stdc++.h>",
+        "using namespace std;",
+        "",
+        "// ── 用户代码 ──",
+        user_code,
+        "",
+        "// ── 测试用例 ──",
+        "int main() {",
+    ]
+
+    for i, tc in enumerate(question.test_cases):
+        expected_lit = json.dumps(tc.expected, ensure_ascii=False)
+        lines.append(f"    // 测试 {i+1}: {tc.name}")
+        lines.append("    {")
+        lines.append("        stringstream _buf;")
+        lines.append("        streambuf* _old = cout.rdbuf(_buf.rdbuf());")
+        for code_line in tc.input_code.strip().split("\n"):
+            lines.append(f"        {code_line}")
+        lines.append("        cout.rdbuf(_old);")
+        lines.append("        string _out = _buf.str();")
+        lines.append("        while (!_out.empty() && isspace((unsigned char)_out.back())) _out.pop_back();")
+        lines.append(f"        string _expected = {expected_lit};")
+        lines.append("        if (_out == _expected) {")
+        lines.append(f'            cout << "__TEST_{i}_PASS__" << endl;')
+        lines.append("        } else {")
+        lines.append(f'            cout << "__TEST_{i}_FAIL__: 期望 " << _expected << " 实际 " << _out << endl;')
+        lines.append("        }")
+        lines.append("    }")
+
+    lines.append("    return 0;")
+    lines.append("}")
+    return "\n".join(lines)
+
+
 def _parse_test_output(stdout: str, stderr: str, question: CodeQuestion) -> JudgeResult:
     """解析测试输出"""
     details = []
@@ -419,12 +549,12 @@ def _parse_test_output(stdout: str, stderr: str, question: CodeQuestion) -> Judg
             elif fail_marker in line:
                 failed += 1
                 # 解析「期望 X 实际 Y」格式，分别填入 expected / got
-                msg = line.split("__TEST_{i}_FAIL__: ", 1)[-1]
+                msg = line.split(f"__TEST_{i}_FAIL__: ", 1)[-1].strip()
                 expected, got = tc.expected, msg
                 if " 实际 " in msg:
                     parts = msg.split(" 实际 ", 1)
                     expected = parts[0].replace("期望 ", "")
-                    got = parts[1]
+                    got = parts[1].strip()
                 details.append({
                     "name": tc.name,
                     "passed": False,

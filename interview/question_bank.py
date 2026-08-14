@@ -38,6 +38,10 @@ class InterviewQuestion:
     follow_up_hints: list[str] = field(default_factory=list)
     time_limit: int = 0
     source: str = ""
+    # 编程题的判题元数据（None=非编程题）:
+    # {"language": "python|cpp", "function_signature": "...",
+    #  "test_cases": [{"name":..., "input_code":..., "expected":...}]}
+    code: dict | None = None
 
 
 @dataclass
@@ -51,6 +55,7 @@ class BankQuestion:
     expected_points: list[str] = field(default_factory=list)
     difficulty: int = 3
     follow_up_hints: list[str] = field(default_factory=list)
+    code: dict | None = None          # 编程题判题元数据（同 InterviewQuestion.code）
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -716,7 +721,7 @@ QUESTION_BANK: list[BankQuestion] = [
         difficulty=2,
     ),
 
-    # ── 代码实操题 ───────────────────────────────────────
+    # ── 代码实操题（含沙箱判题元数据） ───────────────────
     BankQuestion(
         id="COD001", type=QuestionType.CODING, category="数据结构",
         question="请实现一个 LRU (最近最少使用) 缓存，要求 get 和 put 操作的时间复杂度都是 O(1)。请用 Python 写，并包含基本测试。",
@@ -724,13 +729,37 @@ QUESTION_BANK: list[BankQuestion] = [
         expected_points=["哈希表+双向链表", "O(1) get/put", "容量淘汰", "边界处理"],
         difficulty=3,
         follow_up_hints=["如果要支持过期时间呢？", "并发安全版本怎么写？"],
+        code={
+            "language": "python",
+            "function_signature": (
+                "class LRUCache:\n"
+                "    def __init__(self, capacity: int): ...\n"
+                "    def get(self, key: int) -> int: ...\n"
+                "    def put(self, key: int, value: int) -> None: ..."
+            ),
+            "test_cases": [
+                {"name": "基本 put/get", "input_code": "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\nprint(cache.get(1))\nprint(cache.get(2))", "expected": "1\n2"},
+                {"name": "容量溢出淘汰", "input_code": "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\ncache.put(3, 3)\nprint(cache.get(1))\nprint(cache.get(2))\nprint(cache.get(3))", "expected": "-1\n2\n3"},
+                {"name": "更新已存在的key", "input_code": "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\ncache.put(1, 10)\nprint(cache.get(1))\nprint(cache.get(2))", "expected": "10\n2"},
+                {"name": "容量为1的边界情况", "input_code": "cache = LRUCache(1)\ncache.put(1, 1)\ncache.put(2, 2)\nprint(cache.get(1))\nprint(cache.get(2))", "expected": "-1\n2"},
+                {"name": "get后淘汰最久未使用", "input_code": "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\nprint(cache.get(1))\ncache.put(3, 3)\nprint(cache.get(1))\nprint(cache.get(2))\nprint(cache.get(3))", "expected": "1\n1\n-1\n3"},
+            ],
+        },
     ),
     BankQuestion(
         id="COD002", type=QuestionType.CODING, category="算法",
-        question="给定一个日志文件，每行格式为 'timestamp level message'（空格分隔），请实现一个函数按 level 统计每分钟的日志数量，并找出日志量最高的 5 个时间窗口。",
+        question="请实现函数 count_by_level(logs: list[str]) -> dict[str, int]：输入每行日志格式为 'level message'（空格分隔，level 为 ERROR/INFO/WARN 等），返回各日志级别（level）的出现次数。请用 Python 写。",
         tags=["算法", "日志分析", "数据结构"],
-        expected_points=["解析逻辑", "哈希聚合", "排序取TopK", "时间窗口计算", "边界case"],
-        difficulty=3,
+        expected_points=["解析逻辑", "哈希聚合", "边界case"],
+        difficulty=2,
+        code={
+            "language": "python",
+            "function_signature": "def count_by_level(logs: list[str]) -> dict[str, int]",
+            "test_cases": [
+                {"name": "基本统计", "input_code": 'logs = ["ERROR disk full", "INFO started", "ERROR timeout", "WARN slow", "INFO ok"]\nres = count_by_level(logs)\nfor k in sorted(res):\n    print(f"{k}={res[k]}")', "expected": "ERROR=2\nINFO=2\nWARN=1"},
+                {"name": "空输入", "input_code": "res = count_by_level([])\nprint(len(res))", "expected": "0"},
+            ],
+        },
     ),
     BankQuestion(
         id="COD003", type=QuestionType.CODING, category="并发",
@@ -738,6 +767,21 @@ QUESTION_BANK: list[BankQuestion] = [
         tags=["python", "线程池", "并发", "queue"],
         expected_points=["任务队列设计", "worker线程", "并发控制", "优雅关闭", "异常处理"],
         difficulty=4,
+    ),
+    BankQuestion(
+        id="CPP001", type=QuestionType.CODING, category="算法",
+        question="请用 C++ 实现函数 vector<int> two_sum(vector<int>& nums, int target)：给定整数数组和目标值，返回两个数的下标（从 0 开始），使它们相加等于 target。假设每个输入只有一个答案，同一元素不能使用两次。",
+        tags=["c++", "算法", "哈希表"],
+        expected_points=["哈希表", "遍历", "下标返回", "边界处理"],
+        difficulty=2,
+        code={
+            "language": "cpp",
+            "function_signature": "vector<int> two_sum(vector<int>& nums, int target)",
+            "test_cases": [
+                {"name": "基础用例", "input_code": 'vector<int> nums = {2, 7, 11, 15};\nvector<int> r = two_sum(nums, 9);\ncout << r[0] << " " << r[1];', "expected": "0 1"},
+                {"name": "重复元素", "input_code": 'vector<int> nums = {3, 3};\nvector<int> r = two_sum(nums, 6);\ncout << r[0] << " " << r[1];', "expected": "0 1"},
+            ],
+        },
     ),
 ]
 

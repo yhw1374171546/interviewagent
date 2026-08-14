@@ -97,6 +97,7 @@ class QuestionGenerator:
                 difficulty=bq.difficulty,
                 follow_up_hints=bq.follow_up_hints,
                 source="bank",
+                code=bq.code,
             ))
             seen_ids.add(bq.id)
 
@@ -124,6 +125,7 @@ class QuestionGenerator:
                     question=bq.question, expected_points=bq.expected_points,
                     difficulty=bq.difficulty, follow_up_hints=bq.follow_up_hints,
                     source="bank",
+                    code=bq.code,
                 ))
 
         # 重新编号

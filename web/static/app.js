@@ -339,6 +339,10 @@ function appendMessage(m, animate = false) {
       wrapper.appendChild(userBubble(m.content));
       break;
 
+    case "code":
+      wrapper.appendChild(codeBubble(m.content));
+      break;
+
     case "evaluation":
       wrapper.appendChild(evalCard(m.evaluation));
       break;
@@ -381,6 +385,19 @@ function assistantBubble(text) {
   return b;
 }
 
+function codeBubble(text) {
+  const b = document.createElement("div");
+  b.className = "bubble code-bubble";
+  const label = document.createElement("div");
+  label.className = "code-bubble-label";
+  label.textContent = "💻 代码";
+  const pre = document.createElement("pre");
+  pre.textContent = text;
+  b.appendChild(label);
+  b.appendChild(pre);
+  return b;
+}
+
 function questionCard(m) {
   const q = m.question || {};
   const card = document.createElement("div");
@@ -395,6 +412,15 @@ function questionCard(m) {
   body.textContent = m.content || q.question || "";
   card.appendChild(meta);
   card.appendChild(body);
+
+  // 编程题 → 附「写代码」按钮，点击打开代码编辑器
+  if (q.code) {
+    const btn = document.createElement("button");
+    btn.className = "btn-code";
+    btn.textContent = "💻 写代码";
+    btn.addEventListener("click", () => openCodeModal(q));
+    card.appendChild(btn);
+  }
   return card;
 }
 
@@ -413,12 +439,31 @@ function evalCard(ev) {
       ${dimBar("结构", ev.structure)}
       ${dimBar("相关性", ev.relevance)}
     </div>
+    ${ev.code_judge ? judgeResultCard(ev.code_judge) : ""}
     ${ev.overall_comment ? `<div class="eval-comment">💬 ${ev.overall_comment}</div>` : ""}
     <div class="eval-tags">
       ${(ev.strengths || []).map((s) => `<span class="eval-tag">👍 ${s}</span>`).join("")}
       ${(ev.weaknesses || []).map((w) => `<span class="eval-tag weak">⚠️ ${w}</span>`).join("")}
     </div>`;
   return card;
+}
+
+// 判题结果：逐个测试用例的 pass/fail 列表
+function judgeResultCard(j) {
+  const rows = (j.details || []).map((d) => {
+    const icon = d.passed ? "✅" : "❌";
+    const extra = d.passed
+      ? ""
+      : d.error
+        ? ` — ${d.error}`
+        : ` — 期望 ${d.expected ?? ""}，实际 ${d.got ?? ""}`;
+    return `<div class="judge-case ${d.passed ? "pass" : "fail"}">${icon} ${d.name}${extra}</div>`;
+  }).join("");
+  return `
+    <div class="judge-box">
+      <div class="judge-summary">🧪 判题结果：通过 ${j.passed_tests}/${j.total_tests}</div>
+      ${rows}
+    </div>`;
 }
 
 function dimBar(name, score) {
@@ -647,38 +692,25 @@ async function sendAnswer() {
   answerInput.value = "";
   answerInput.style.height = "auto";
   appendMessage({ role: "user", kind: "answer", content: text });
-
-  const loading = addLoadingIndicator();
   $("#send-btn").disabled = true;
 
+  await postAnswer(text);
+}
+
+// 统一提交回答（文字或代码都走 /answer 端点）
+async function postAnswer(answer) {
+  const loading = addLoadingIndicator();
   try {
     const resp = await fetch(`/api/interviews/${state.currentSession}/answer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answer: text }),
+      body: JSON.stringify({ answer }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.detail || "提交失败");
 
     removeLoadingIndicator(loading);
-
-    if (data.evaluation) {
-      appendMessage({ role: "assistant", kind: "evaluation", evaluation: data.evaluation });
-    }
-    if (data.report) {
-      appendMessage({ role: "assistant", kind: "report", report: data.report });
-      finishInterview();
-    } else if (data.stream_report) {
-      // 报告改为 SSE 流式：逐字显示，完成后由 streamReport 收尾
-      await streamReport(state.currentSession);
-    } else if (data.phase === "follow_up") {
-      // 追问文字逐字显示（打字机），历史回放不会重放动画
-      appendMessage({ role: "assistant", kind: "follow_up", content: data.message }, true);
-      $("#chat-progress").textContent = data.progress || "";
-    } else if (data.question) {
-      await refreshSessionMessages();
-      $("#chat-progress").textContent = data.progress || "";
-    }
+    await handleAnswerResponse(data);
   } catch (e) {
     removeLoadingIndicator(loading);
     appendMessage({ role: "assistant", kind: "follow_up", content: "⚠️ " + e.message });
@@ -686,6 +718,26 @@ async function sendAnswer() {
     state.sending = false;
     $("#send-btn").disabled = !state.canResume;
     if (state.canResume) answerInput.focus();
+  }
+}
+
+async function handleAnswerResponse(data) {
+  if (data.evaluation) {
+    appendMessage({ role: "assistant", kind: "evaluation", evaluation: data.evaluation });
+  }
+  if (data.report) {
+    appendMessage({ role: "assistant", kind: "report", report: data.report });
+    finishInterview();
+  } else if (data.stream_report) {
+    // 报告改为 SSE 流式：逐字显示，完成后由 streamReport 收尾
+    await streamReport(state.currentSession);
+  } else if (data.phase === "follow_up") {
+    // 追问文字逐字显示（打字机），历史回放不会重放动画
+    appendMessage({ role: "assistant", kind: "follow_up", content: data.message }, true);
+    $("#chat-progress").textContent = data.progress || "";
+  } else if (data.question) {
+    await refreshSessionMessages();
+    $("#chat-progress").textContent = data.progress || "";
   }
 }
 
@@ -723,6 +775,37 @@ async function refreshSessionMessages() {
   renderMessages(data.messages);
 }
 
+/* ═══════════════ 代码编辑器（编程题专用） ═══════════════ */
+
+function openCodeModal(q) {
+  if (!state.currentSession || !state.canResume) {
+    appendMessage({ role: "assistant", kind: "follow_up", content: "本场面试已结束，无法提交代码。" });
+    return;
+  }
+  const code = q.code || {};
+  $("#code-lang").textContent = code.language || "python";
+  $("#code-signature").textContent = code.function_signature || "";
+  $("#code-editor").value = "";
+  $("#code-modal").hidden = false;
+  $("#code-editor").focus();
+}
+
+function closeCodeModal() {
+  $("#code-modal").hidden = true;
+}
+
+async function submitCode() {
+  const code = $("#code-editor").value;
+  if (!code.trim() || state.sending || !state.currentSession) return;
+
+  state.sending = true;
+  closeCodeModal();
+  appendMessage({ role: "user", kind: "code", content: code });
+  $("#send-btn").disabled = true;
+
+  await postAnswer(code);
+}
+
 /* ═══════════════ 加载指示 ═══════════════ */
 
 function addLoadingIndicator() {
@@ -748,6 +831,11 @@ $("#new-interview-btn").addEventListener("click", () => {
   $("#file-name").textContent = "";
   showNewInterview();
 });
+
+// 代码编辑器弹窗
+$("#code-close").addEventListener("click", closeCodeModal);
+$("#code-cancel").addEventListener("click", closeCodeModal);
+$("#code-submit").addEventListener("click", submitCode);
 
 function init() {
   // DeepSeek 式单视图: 始终进入聊天界面，侧边栏历史常驻，
