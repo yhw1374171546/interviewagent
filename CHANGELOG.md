@@ -765,6 +765,24 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 **经验**: ① 简历数字必须能当场复现——「¥0.049」被追问「你怎么算的」时，有 CHANGELOG 原始记录 + 可重跑的探针脚本才有底气；② 成本口径要写清「估算 vs 账单」「哪次实测」「价格表」三要素，否则换模型/换价格后数字漂移会被质疑；③ 单样本成本波动大（追问深度/回答长度影响 token 用量），简历写范围比写死数字更诚实。
 
+### 2026-08-14 18:50 | 消除「宣传与实现不一致」：ChromaDB 真实链路验证 + Docker 承诺修正
+
+**背景**: 代码里写「ChromaDB 向量记忆 + 三级降级」，但 chromadb 从未安装过——真实链路零验证，简历承诺有穿帮风险；「Docker 一键启动」同样未经验证（本机无 Docker）。按「宣传与实现一致」原则逐一兑现或修正。
+
+**做了什么**:
+1. **安装 chromadb 1.5.9 + sentence-transformers 5.7.0 + tiktoken 0.13.0**，首次跑通向量记忆真实链路：VectorMemory 语义检索排序正确（"Python 技能" → Python 条距离 0.17 最近、Java 条 0.76 最远）、InterviewMemory 跨会话弱项召回正确（低分召回、高分 8.5 不召回）、持久化跨实例有效。
+2. **修复可选依赖导入隐患** — `memory/__init__.py` 原顶层 `from .vector_store import VectorMemory`（→ 顶层 `import chromadb`），缺依赖时 `import memory` 直接崩溃。改为懒加载 `get_vector_memory()`（主链路本就走 `interview/memory_context.py` 内 `from memory.vector_store import ...`，不受影响）。
+3. **新增 `tests/test_vector_memory.py`（5 个测试）** — 真实语义检索排序/元数据过滤/持久化/chroma 后端启用/弱项召回。设计: `importorskip` 保证 CI（最小依赖无 chromadb）整组跳过；模型离线加载（缓存缺失 → skip 不联网）；环境变量在**所有 HF 相关 import 之前**设置。
+4. **修复测试回归（test_memory_context）** — 装 chromadb 后 `InterviewMemory()` 默认持久化目录 `data/chroma` 读到真实历史数据，2 个测试失败。改为 `_fresh_memory()` 用独立目录 + 清空。
+5. **requirements.txt 补 sentence-transformers** — 此前声明 chromadb 但缺 embedding 依赖，Docker 镜像内 chroma 会因缺 sentence-transformers 降级。
+6. **Docker 承诺修正** — 本机无 Docker 无法验证 → README 标注「标准写法未做本地 build 验证」，简历「Docker 一键启动」改为「Dockerfile + Compose（标准配置）」。
+
+**排障实录（本机环境特异问题）**: 测试反复「卡死」无输出——根因: `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE`/`HF_ENDPOINT` 环境变量最初在 `importorskip` **之后**才设置，而 huggingface_hub 在 import 时把值缓存为模块常量，运行期改环境变量无效 → offline 失效、每次模型加载发 HEAD 校验请求 → 打向 huggingface.co（直连不通，WinError 10060）→ huggingface_hub 5 次超时重试 × 每次数十秒 = 每次测试伪卡死 5-10 分钟。修复: 环境变量移到模块最顶部（任何 HF import 之前）+ 只走离线加载路径。修复后连续 5 次稳定 12-14 秒通过。
+
+**实测**: 266 测试全绿（261 + 5）；ruff 零错误；benchmark/demo 无回归；真实语义检索链路验证通过（排序/召回/持久化三项断言）。
+
+**经验**: ① 「三级降级」的代码只验证了降级路径、没验证主路径——宣传 ChromaDB 前必须先装依赖跑通真实链路，这是「宣传与实现一致」的基本功；② 可选依赖的顶层 import 是隐性炸弹（缺依赖时 import 包即崩），懒加载函数是标准解法；③ huggingface_hub 类库在 import 时缓存环境变量是常见坑——离线/镜像配置必须早于 import，测试文件里环境变量要放最顶部；④ 测试读真实数据目录（默认持久化路径）是环境敏感回归的典型来源，测试必须用独立目录；⑤ 「卡死无输出」先怀疑网络超时重试链（每次重试数十秒 × N 次 = 分钟级伪挂起），用 faulthandler/分步打印定位比盲猜快。
+
 ---
 
 ## 技术决策速查表

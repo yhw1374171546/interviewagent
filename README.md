@@ -190,6 +190,9 @@ python demo.py                # 工程能力演示（无需 API Key）
 
 ### Docker 一键启动
 
+> ⚠️ 本机未安装 Docker，Dockerfile/compose 为标准写法**未做本地 build 验证**，
+> 采用者如有问题请提 issue。本地体验推荐直接用下方「Web Demo」。
+
 ```bash
 cp .env.example .env          # 可选：填写 DeepSeek/OpenAI Key；不填也能跑 Mock 演示模式
 docker compose up --build

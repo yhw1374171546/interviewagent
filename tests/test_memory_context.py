@@ -160,10 +160,23 @@ class TestMemoryInjection:
 # ═══════════════ 跨会话记忆: 降级与检索 ═══════════════
 
 class TestInterviewMemory:
+    """跨会话记忆测试。
+
+    用独立持久化目录隔离真实数据（装 chromadb 后默认目录有历史记忆，
+    不隔离会导致测试读到真实数据而失败）。
+    """
+
+    def _fresh_memory(self) -> InterviewMemory:
+        memory = InterviewMemory(persist_dir="data/chroma_test_ctx")
+        # 清空（进程内 + chroma），保证每个测试从干净状态开始
+        memory._entries.clear()
+        if memory._chroma is not None:
+            memory._chroma.clear()
+        return memory
 
     def test_remember_and_recall_weaknesses(self):
         """存储低分记录后能检索到弱项（ChromaDB 缺失时走进程内兜底）"""
-        memory = InterviewMemory()
+        memory = self._fresh_memory()
         memory.remember_answer(MemoryEntry(
             question="Go 的 GC?", answer="不会", score=4.5,
             category="Go语言", question_type="technical",
@@ -181,7 +194,7 @@ class TestInterviewMemory:
 
     def test_high_scores_not_recalled(self):
         """高分记录不应出现在弱项检索结果中"""
-        memory = InterviewMemory()
+        memory = self._fresh_memory()
         memory.remember_answer(MemoryEntry(
             question="MySQL 索引?", answer="B+树", score=9.0,
             category="数据库", question_type="technical",
@@ -191,12 +204,12 @@ class TestInterviewMemory:
 
     def test_empty_memory(self):
         """无历史时返回空列表（面试不中断）"""
-        memory = InterviewMemory()
+        memory = self._fresh_memory()
         assert memory.recall_weaknesses(["python"]) == []
 
     def test_backend_reported(self):
-        """后端类型可观测（chroma / memory 二选一，绝不报错）"""
-        memory = InterviewMemory()
+        """后端类型可观测（chroma / memory / none 三选一，绝不报错）"""
+        memory = self._fresh_memory()
         assert memory.backend in ("chroma", "memory", "none")
 
 
