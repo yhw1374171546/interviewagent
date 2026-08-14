@@ -921,6 +921,71 @@ async function submitCode() {
   await postAnswer(code);
 }
 
+/* ═══════════════ 能力画像 ═══════════════ */
+
+async function openProfile() {
+  $("#profile-modal").hidden = false;
+  const body = $("#profile-body");
+  body.innerHTML = `<div class="profile-loading">加载中…</div>`;
+  try {
+    const resp = await fetch("/api/profile");
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "加载失败");
+    renderProfile(data);
+  } catch (e) {
+    body.innerHTML = `<div class="profile-empty">加载失败：${e.message}</div>`;
+  }
+}
+
+function closeProfile() {
+  $("#profile-modal").hidden = true;
+}
+
+function renderProfile(p) {
+  const body = $("#profile-body");
+  if (!p.skills || !p.skills.length) {
+    body.innerHTML = `<div class="profile-empty">还没有足够的答题记录<br>完成几次面试后再来看看你的能力画像吧</div>`;
+    return;
+  }
+
+  const tag = (label, list, cls) => `
+    <div class="profile-tags-row">
+      <span class="profile-tags-label">${label}</span>
+      ${list.map((s) => `<span class="profile-tag ${cls}">${esc(s)}</span>`).join("")}
+    </div>`;
+
+  const skillRows = p.skills.map((s) => {
+    const trend = s.trend > 0
+      ? `<span class="profile-trend up">▲ +${s.trend}</span>`
+      : s.trend < 0
+        ? `<span class="profile-trend down">▼ ${s.trend}</span>`
+        : `<span class="profile-trend flat">— 持平</span>`;
+    return `
+      <div class="profile-skill">
+        <div class="profile-skill-head">
+          <span class="profile-skill-name">${esc(s.category)}</span>
+          <span class="profile-skill-score">${s.avg_score}</span>
+          <span class="profile-skill-meta">答 ${s.attempts} 次</span>
+          ${s.attempts >= 2 ? trend : ""}
+        </div>
+        <div class="profile-dims">
+          <span>正确性 ${s.avg_correctness}</span>
+          <span>深度 ${s.avg_depth}</span>
+          <span>结构 ${s.avg_structure}</span>
+          <span>相关性 ${s.avg_relevance}</span>
+        </div>
+      </div>`;
+  }).join("");
+
+  body.innerHTML = `
+    <div class="profile-summary">
+      已面 <b>${p.total_sessions}</b> 场 · 累计答题 <b>${p.total_attempts}</b> 次
+    </div>
+    ${p.weakest.length ? tag("🎯 弱项", p.weakest, "weak") : ""}
+    ${p.strongest.length ? tag("💪 强项", p.strongest, "strong") : ""}
+    <div class="profile-skills">${skillRows}</div>`;
+}
+
 /* ═══════════════ 加载指示 ═══════════════ */
 
 function addLoadingIndicator() {
@@ -952,6 +1017,10 @@ $("#code-close").addEventListener("click", closeCodeModal);
 $("#code-cancel").addEventListener("click", closeCodeModal);
 $("#code-run").addEventListener("click", runCode);
 $("#code-submit").addEventListener("click", submitCode);
+
+// 能力画像弹窗
+$("#profile-btn").addEventListener("click", openProfile);
+$("#profile-close").addEventListener("click", closeProfile);
 
 function init() {
   // DeepSeek 式单视图: 始终进入聊天界面，侧边栏历史常驻，

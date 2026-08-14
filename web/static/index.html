@@ -17,8 +17,9 @@
       <button id="new-interview-btn" class="btn-new">＋ 开始新面试</button>
     </div>
     <div id="history-list" class="history-list"></div>
-    <div class="sidebar-footer" id="mock-banner" hidden>
-      <span class="mock-dot"></span> 演示模式（Mock LLM）
+    <div class="sidebar-footer">
+      <button id="profile-btn" class="btn-profile" title="查看跨会话能力画像">📊 能力画像</button>
+      <div id="mock-banner" hidden><span class="mock-dot"></span> 演示模式（Mock LLM）</div>
     </div>
   </aside>
 
@@ -104,6 +105,17 @@
       <button id="code-run" class="btn-run">▶ 运行自测</button>
       <button id="code-submit" class="btn-primary">提交</button>
     </div>
+  </div>
+</div>
+
+<!-- 能力画像弹窗 -->
+<div id="profile-modal" class="modal-overlay" hidden>
+  <div class="profile-modal">
+    <div class="profile-modal-header">
+      <div class="code-modal-title">📊 能力画像</div>
+      <button id="profile-close" class="code-close" title="关闭">✕</button>
+    </div>
+    <div id="profile-body" class="profile-body"></div>
   </div>
 </div>
 

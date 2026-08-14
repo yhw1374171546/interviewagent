@@ -43,6 +43,7 @@ from core.llm import LLMClient
 from core.mock_llm import MockLLMClient
 from interview.interviewer import Interviewer
 from interview.memory_context import InterviewMemory
+from interview.profile import ProfileBuilder
 from interview.session_manager import SessionManager
 from utils.logger import get_logger
 
@@ -119,6 +120,9 @@ INTERVIEWERS: dict[str, Interviewer] = {}
 shared_memory = InterviewMemory(
     persist_dir=str(settings.project_root / "data" / "memory")
 )
+
+# 能力画像聚合器（跨会话统计强弱项/进步趋势，零 LLM 依赖）
+profile_builder = ProfileBuilder(session_mgr)
 
 
 # ── 工具函数 ───────────────────────────────────────────────────
@@ -322,6 +326,17 @@ async def create_interview(
     except Exception as e:
         raise HTTPException(500, f"面试初始化失败: {e}")
 
+    # 弱项注入：把历史能力画像的弱项并入 memory_hints，
+    # 使评估/追问对候选人的历史短板重点验证（"翻旧账"升级为"画像驱动"）
+    try:
+        weakest = profile_builder.build().weakest
+        if weakest:
+            interviewer.state.memory_hints.append(
+                f"历史弱项（能力画像）：{'、'.join(weakest)}"
+            )
+    except Exception:
+        pass  # 画像失败不影响面试启动
+
     # 岗位名: LLM 解析 > 求职意向正则 > 岗位关键词猜测 > 候选人
     position = interviewer.state.jd_analysis.position or "候选人"
 
@@ -509,6 +524,16 @@ async def list_interviews():
     """侧边栏历史列表: 置顶优先，其余按时间倒序"""
     metas = session_mgr.list_sessions(limit=100)
     return {"sessions": [meta_to_dict(m) for m in metas]}
+
+
+@app.get("/api/profile")
+async def ability_profile():
+    """
+    能力画像：跨会话聚合每个技能分类的强弱项与进步趋势。
+    数据来自所有历史会话的答题记录，零 LLM 依赖，随时可查。
+    """
+    profile = profile_builder.build()
+    return profile.to_dict()
 
 
 @app.get("/api/stats")
