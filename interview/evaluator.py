@@ -250,6 +250,30 @@ class AnswerEvaluator:
                 keyword_match_rate=0.0,
             )
 
+        # ── 边界 1.5: Prompt 注入（操纵评分/越狱/泄露提示词等）──
+        # 面试者回答夹带指令试图操纵 AI → 确定性拦截，不浪费 LLM 调用
+        from .injection import detect_injection
+
+        injection = detect_injection(answer)
+        if injection["detected"]:
+            return EvaluationResult(
+                correctness=1, depth=1, structure=1, relevance=1,
+                overall_comment=(
+                    f"⚠️ 检测到 Prompt 注入（{injection['category']}: "
+                    f"「{injection['pattern']}」），回答不作数并视为无效"
+                ),
+                weaknesses=[f"检测到 Prompt 注入（{injection['category']}）"],
+                follow_up_decision=FollowUpDecision.DEEPEN,
+                follow_up_question=(
+                    "你的回答疑似包含操纵系统/评分的内容，请回到题目本身，"
+                    "用自己的话回答这道题。"
+                ),
+                follow_up_reason="检测到 Prompt 注入",
+                keyword_match_rate=0.0,
+                matched_points=[],
+                missed_points=question.expected_points or [],
+            )
+
         # ── 编程题 → 沙箱判题（真实执行测试用例，不适用自然语言的关键词/复读检测）──
         if question.type == QuestionType.CODING and question.code:
             return await self._evaluate_code(question, answer)

@@ -335,7 +335,9 @@ class ReportGenerator:
     # ── Private ─────────────────────────────────────────
 
     def _format_interview_log(self, answers: list[dict]) -> str:
-        """格式化面试记录为文本"""
+        """格式化面试记录为文本（过滤 Prompt 注入内容，防操纵报告）"""
+        from .injection import detect_injection
+
         lines = []
         for i, record in enumerate(answers):
             q = record.get("question")
@@ -347,8 +349,15 @@ class ReportGenerator:
             else:
                 q_text = str(q)
 
+            # 注入检测: 回答夹带操纵指令 → 记录里标注为无效，不把原文传进报告 prompt
+            injection = detect_injection(answer)
+            if injection["detected"]:
+                answer_display = f"[已拦截 Prompt 注入: {injection['category']}]"
+            else:
+                answer_display = answer[:500]
+
             lines.append(f"## 第{i + 1}题: {q_text}")
-            lines.append(f"回答: {answer[:500]}")
+            lines.append(f"回答: {answer_display}")
             if ev:
                 lines.append(f"评分: {ev.total_score}/10 | {ev.overall_comment}")
             lines.append("")

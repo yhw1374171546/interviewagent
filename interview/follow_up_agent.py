@@ -87,6 +87,22 @@ class FollowUpAgent:
               调用方应回退到评估器的 5 分类兜底。
         """
         asked = asked_follow_ups or []
+
+        # Prompt 注入防护: 回答夹带操纵指令 → 不进入 LLM 追问决策，
+        # 直接返回"提示回到题目"的追问（省一次调用 + 防操纵传播）
+        from .injection import detect_injection
+
+        injection = detect_injection(answer)
+        if injection["detected"]:
+            return {
+                "continue_follow_up": True,
+                "question": (
+                    "你的回答疑似包含操纵系统/评分的内容，请回到题目本身，"
+                    "用自己的话回答这道题。"
+                ),
+                "reason": f"检测到 Prompt 注入（{injection['category']}）",
+            }
+
         prompt = FOLLOW_UP_AGENT_PROMPT.format(
             question=question.question,
             answer=answer[:2500],
