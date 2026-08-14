@@ -556,6 +556,25 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段十九：代码题沙箱判题接入主链路 + 多语言 + 代码编辑器
+
+### 2026-08-14 11:30 | 修复「宣传了沙箱判题但主链路没用」的硬伤
+
+**做了什么**:
+1. **code_judge 接入 evaluator** — `evaluator.evaluate()` 对 `type=CODING 且带 code 元数据` 的题走 `_evaluate_code()`：把回答当代码交给 `run_judge` 真实执行测试用例，pass/fail 通过率覆盖正确性（全过=10 分，全挂/编译错/安全拦截/超时=1 分），结果透出到 `EvaluationResult.code_judge`。此前 `code_judge` 只在 benchmark/demo 里被调，面试主链路从未真正执行用户代码。
+2. **多语言** — `code_judge` 重构为「语言执行器」模式：Python（AST 白名单，强）+ C++（g++ 编译 + 黑名单 + 超时，demo 级）。`run_judge` 支持 `language` 参数，编译型语言先 `g++ -std=c++17` 编译（编译错误单独返回），解释型直接执行。
+3. **题库绑定测试用例** — `BankQuestion`/`InterviewQuestion` 新增 `code` 字段；COD001（LRU）绑定 5 个测试用例、COD002（日志统计）绑定 2 个、新增 CPP001（C++ 两数之和）；COD003（线程池）因并发判题复杂保持 LLM 评估。`question_gen` 转换时透传。
+4. **前端代码编辑器** — 编程题卡片出现「💻 写代码」按钮 → 全屏代码编辑器模态框（语言徽标 + 函数签名 + 大 textarea）→ 提交后聊天流展示「代码气泡 + 判题结果卡片（逐用例 ✅/❌ + 期望/实际）」。复用 `/answer` 端点（后端自动识别 coding 题）。
+5. **顺带修一个既有 bug** — `_parse_test_output` 里 `msg = line.split("__TEST_{i}_FAIL__: ", 1)` 的 `{i}` 不是 f-string，导致 expected/got 字段混入 marker 前缀（测试只断言了 pass/fail 名没暴露）。
+
+**为什么这么做**: 简历/README 写了「真实沙箱判题（AST 白名单 + subprocess 真实执行）」，但主链路从未调用——面试官问「代码题怎么判的」会被当场追穿。这是「宣传与实现一致」的底线。
+
+**实测**: 200 测试全绿（新增 C++ 多语言 + evaluator coding 接入共 8 个）；覆盖率 85.97%；ruff 零错误；benchmark/demo 无回归；端到端验证正确 LRU 代码 `correctness=10`、序列化 round-trip 保留 code 元数据。
+
+**经验**: ① 文档里写的能力必须是主链路真实走通的——「演示模块」和「产品能力」是两回事，前者只能算 demo，后者才经得起追问；② 多语言沙箱的难点不在「执行」，在「安全」——Python 有 AST 白名单能强约束，C++ 只能黑名单 + 超时做 demo 级隔离，讲清楚这个边界比假装全语言都安全更专业；③ 判题结果的「expected/got 解析」这类格式化细节最容易出隐性 bug，测试要断言字段值而不只是 pass/fail 名。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
