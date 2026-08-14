@@ -108,6 +108,22 @@ class TestAuditCodeSafety:
         assert safe is False
         assert "Global" in err
 
+    def test_is_not_comparison_allowed(self):
+        """链表/树题的 `is not None` 必须放行"""
+        safe, err = audit_code_safety("def f(x):\n    return x is not None")
+        assert safe is True, err
+
+    def test_list_comprehension_allowed(self):
+        """列表推导（含 comprehension 子节点）必须放行"""
+        safe, err = audit_code_safety("def f(xs):\n    return [x * 2 for x in xs]")
+        assert safe is True, err
+
+    def test_nonlocal_allowed(self):
+        """闭包 nonlocal 声明必须放行"""
+        code = "def outer():\n    total = 0\n    def inner():\n        nonlocal total\n        total += 1\n    return inner"
+        safe, err = audit_code_safety(code)
+        assert safe is True, err
+
 
 # ── 沙箱执行 + 输出比对 ────────────────────────────────────────
 
@@ -141,6 +157,101 @@ class TestRunJudge:
         result = run(run_judge(CORRECT_LRU, COD_LRU))
         report = format_judge_report(result)
         assert "全部通过" in report
+
+
+# ── 链表/树判题（节点工具注入） ────────────────────────────────
+
+LC_ADD_TWO = CodeQuestion(
+    id="LC002T", title="Add Two Numbers", description="", function_signature="",
+    example_input="", example_output="",
+    test_cases=[
+        CodeTestCase(
+            name="进位",
+            input_code=(
+                "sol = Solution()\n"
+                "print(linkedlist_to_list(sol.addTwoNumbers("
+                "l1=list_to_linkedlist([2, 4, 3]), l2=list_to_linkedlist([5, 6, 4]))))"
+            ),
+            expected="[7, 0, 8]",
+        ),
+    ],
+)
+
+LC_ADD_CORRECT = '''class Solution:
+    def addTwoNumbers(self, l1: Optional[ListNode], l2: Optional[ListNode]) -> Optional[ListNode]:
+        dummy = ListNode(0)
+        cur = dummy
+        carry = 0
+        while l1 or l2 or carry:
+            s = carry
+            if l1:
+                s += l1.val
+                l1 = l1.next
+            if l2:
+                s += l2.val
+                l2 = l2.next
+            carry, s = divmod(s, 10)
+            cur.next = ListNode(s)
+            cur = cur.next
+        return dummy.next
+'''
+
+LC_TREE_Q = CodeQuestion(
+    id="LC094T", title="Inorder Traversal", description="", function_signature="",
+    example_input="", example_output="",
+    test_cases=[
+        CodeTestCase(
+            name="中序",
+            input_code=(
+                "sol = Solution()\n"
+                "print(sol.inorderTraversal(list_to_tree([1, None, 2, 3])))"
+            ),
+            expected="[1, 3, 2]",
+        ),
+    ],
+)
+
+LC_TREE_CORRECT = '''class Solution:
+    def inorderTraversal(self, root: Optional[TreeNode]) -> List[int]:
+        res = []
+        def dfs(node):
+            if not node:
+                return
+            dfs(node.left)
+            res.append(node.val)
+            dfs(node.right)
+        dfs(root)
+        return res
+'''
+
+
+class TestNodeJudge:
+
+    def test_linked_list_question_passes(self):
+        result = run(run_judge(LC_ADD_CORRECT, LC_ADD_TWO))
+        assert result.passed is True
+        assert result.passed_tests == 1
+
+    def test_linked_list_wrong_answer_fails(self):
+        wrong = "class Solution:\n    def addTwoNumbers(self, l1, l2):\n        return None\n"
+        result = run(run_judge(wrong, LC_ADD_TWO))
+        assert result.passed is False
+        # 区分度: 空链表与期望 [7, 0, 8] 不匹配（不是框架 RE）
+        assert result.verdict == "WA"
+
+    def test_tree_question_passes(self):
+        result = run(run_judge(LC_TREE_CORRECT, LC_TREE_Q))
+        assert result.passed is True
+
+    def test_tree_null_roundtrip(self):
+        """层序数组含 null 的构造/序列化往返一致"""
+        from interview.code_judge import NODE_UTILS_SOURCE
+        ns: dict = {}
+        exec(compile(NODE_UTILS_SOURCE, "<utils>", "exec"), ns)
+        arr = [3, 9, 20, None, None, 15, 7]
+        root = ns["list_to_tree"](arr)
+        assert ns["tree_to_list"](root) == arr
+        assert ns["linkedlist_to_list"](ns["list_to_linkedlist"]([1, 2, 3])) == [1, 2, 3]
 
 
 # ── C++ 判题（多语言） ─────────────────────────────────────────

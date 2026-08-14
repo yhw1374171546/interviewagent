@@ -23,7 +23,7 @@ LC_QUESTIONS = [
         "tags": ["Linked List", "Math", "Recursion"],
         "expected_points": ["Linked List", "Math", "Recursion"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def addTwoNumbers(self, l1: Optional[ListNode], l2: Optional[ListNode]) -> Optional[ListNode]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def addTwoNumbers(self, l1: Optional[ListNode], l2: Optional[ListNode]) -> Optional[ListNode]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.addTwoNumbers(l1=list_to_linkedlist([2,4,3]), l2=list_to_linkedlist([5,6,4]))))", "expected": "[7, 0, 8]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.addTwoNumbers(l1=list_to_linkedlist([0]), l2=list_to_linkedlist([0]))))", "expected": "[0]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.addTwoNumbers(l1=list_to_linkedlist([9,9,9,9,9,9,9]), l2=list_to_linkedlist([9,9,9,9]))))", "expected": "[8, 9, 9, 9, 0, 0, 0, 1]"}]},
     },
     {
         "id": "LC003",
@@ -183,7 +183,7 @@ LC_QUESTIONS = [
         "tags": ["Linked List", "Two Pointers"],
         "expected_points": ["Linked List", "Two Pointers"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def removeNthFromEnd(self, head: Optional[ListNode], n: int) -> Optional[ListNode]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def removeNthFromEnd(self, head: Optional[ListNode], n: int) -> Optional[ListNode]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.removeNthFromEnd(head=list_to_linkedlist([1,2,3,4,5]), n=2)))", "expected": "[1, 2, 3, 5]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.removeNthFromEnd(head=list_to_linkedlist([1]), n=1)))", "expected": "[]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.removeNthFromEnd(head=list_to_linkedlist([1,2]), n=1)))", "expected": "[1]"}]},
     },
     {
         "id": "LC020",
@@ -203,7 +203,7 @@ LC_QUESTIONS = [
         "tags": ["Linked List", "Recursion"],
         "expected_points": ["Linked List", "Recursion"],
         "difficulty": 2,
-        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def mergeTwoLists(self, list1: Optional[ListNode], list2: Optional[ListNode]) -> Optional[ListNode]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def mergeTwoLists(self, list1: Optional[ListNode], list2: Optional[ListNode]) -> Optional[ListNode]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.mergeTwoLists(list1=list_to_linkedlist([1,2,4]), list2=list_to_linkedlist([1,3,4]))))", "expected": "[1, 1, 2, 3, 4, 4]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.mergeTwoLists(list1=list_to_linkedlist([]), list2=list_to_linkedlist([]))))", "expected": "[]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.mergeTwoLists(list1=list_to_linkedlist([]), list2=list_to_linkedlist([0]))))", "expected": "[0]"}]},
     },
     {
         "id": "LC022",
@@ -223,7 +223,7 @@ LC_QUESTIONS = [
         "tags": ["Linked List", "Divide and Conquer", "Heap (Priority Queue)", "Merge Sort"],
         "expected_points": ["Linked List", "Divide and Conquer", "Heap (Priority Queue)", "Merge Sort"],
         "difficulty": 4,
-        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def mergeKLists(self, lists: List[Optional[ListNode]]) -> Optional[ListNode]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def mergeKLists(self, lists: List[Optional[ListNode]]) -> Optional[ListNode]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.mergeKLists(lists=[list_to_linkedlist([1, 4, 5]), list_to_linkedlist([1, 3, 4]), list_to_linkedlist([2, 6])])))", "expected": "[1, 1, 2, 3, 4, 4, 5, 6]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.mergeKLists(lists=[])))", "expected": "[]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.mergeKLists(lists=[list_to_linkedlist([])])))", "expected": "[]"}]},
     },
     {
         "id": "LC024",
@@ -233,7 +233,7 @@ LC_QUESTIONS = [
         "tags": ["Linked List", "Recursion"],
         "expected_points": ["Linked List", "Recursion"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def swapPairs(self, head: Optional[ListNode]) -> Optional[ListNode]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def swapPairs(self, head: Optional[ListNode]) -> Optional[ListNode]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.swapPairs(head=list_to_linkedlist([1,2,3,4]))))", "expected": "[2, 1, 4, 3]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.swapPairs(head=list_to_linkedlist([]))))", "expected": "[]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.swapPairs(head=list_to_linkedlist([1]))))", "expected": "[1]"}, {"name": "用例4", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.swapPairs(head=list_to_linkedlist([1,2,3]))))", "expected": "[2, 1, 3]"}]},
     },
     {
         "id": "LC025",
@@ -243,7 +243,7 @@ LC_QUESTIONS = [
         "tags": ["Linked List", "Recursion"],
         "expected_points": ["Linked List", "Recursion"],
         "difficulty": 4,
-        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def reverseKGroup(self, head: Optional[ListNode], k: int) -> Optional[ListNode]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def reverseKGroup(self, head: Optional[ListNode], k: int) -> Optional[ListNode]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.reverseKGroup(head=list_to_linkedlist([1,2,3,4,5]), k=2)))", "expected": "[2, 1, 4, 3, 5]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(linkedlist_to_list(sol.reverseKGroup(head=list_to_linkedlist([1,2,3,4,5]), k=3)))", "expected": "[3, 2, 1, 4, 5]"}]},
     },
     {
         "id": "LC028",
@@ -353,7 +353,7 @@ LC_QUESTIONS = [
         "tags": ["Stack", "Tree", "Depth-First Search", "Binary Tree"],
         "expected_points": ["Stack", "Tree", "Depth-First Search", "Binary Tree"],
         "difficulty": 2,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def inorderTraversal(self, root: Optional[TreeNode]) -> List[int]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def inorderTraversal(self, root: Optional[TreeNode]) -> List[int]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.inorderTraversal(root=list_to_tree([1,None,2,3])))", "expected": "[1, 3, 2]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.inorderTraversal(root=list_to_tree([1,2,3,4,5,None,8,None,None,6,7,9])))", "expected": "[4, 2, 6, 5, 7, 1, 3, 9, 8]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(sol.inorderTraversal(root=list_to_tree([])))", "expected": "[]"}, {"name": "用例4", "input_code": "sol = Solution()\nprint(sol.inorderTraversal(root=list_to_tree([1])))", "expected": "[1]"}]},
     },
     {
         "id": "LC095",
@@ -363,7 +363,7 @@ LC_QUESTIONS = [
         "tags": ["Dynamic Programming", "Backtracking", "Tree", "Binary Search Tree", "Binary Tree"],
         "expected_points": ["Dynamic Programming", "Backtracking", "Tree", "Binary Search Tree", "Binary Tree"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def generateTrees(self, n: int) -> List[Optional[TreeNode]]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.generateTrees(n=3))", "expected": "[[1, None, 2, None, 3], [1, None, 3, 2], [2, 1, 3], [3, 1, None, None, 2], [3, 2, None, 1]]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.generateTrees(n=1))", "expected": "[[1]]"}]},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def generateTrees(self, n: int) -> List[Optional[TreeNode]]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(trees_to_list(sol.generateTrees(n=3)))", "expected": "[[1, None, 2, None, 3], [1, None, 3, 2], [2, 1, 3], [3, 1, None, None, 2], [3, 2, None, 1]]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(trees_to_list(sol.generateTrees(n=1)))", "expected": "[[1]]"}]},
     },
     {
         "id": "LC098",
@@ -373,7 +373,7 @@ LC_QUESTIONS = [
         "tags": ["Tree", "Depth-First Search", "Binary Search Tree", "Binary Tree"],
         "expected_points": ["Tree", "Depth-First Search", "Binary Search Tree", "Binary Tree"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def isValidBST(self, root: Optional[TreeNode]) -> bool:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def isValidBST(self, root: Optional[TreeNode]) -> bool:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.isValidBST(root=list_to_tree([2,1,3])))", "expected": "True"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.isValidBST(root=list_to_tree([5,1,4,None,None,3,6])))", "expected": "False"}]},
     },
     {
         "id": "LC099",
@@ -383,7 +383,7 @@ LC_QUESTIONS = [
         "tags": ["Tree", "Depth-First Search", "Binary Search Tree", "Binary Tree"],
         "expected_points": ["Tree", "Depth-First Search", "Binary Search Tree", "Binary Tree"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def recoverTree(self, root: Optional[TreeNode]) -> None:\n        \"\"\"\n        Do not return anything, modify root in-place instead.\n        \"\"\"", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def recoverTree(self, root: Optional[TreeNode]) -> None:\n        \"\"\"\n        Do not return anything, modify root in-place instead.\n        \"\"\"", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\n_root = list_to_tree([1,3,None,None,2])\nsol.recoverTree(_root)\nprint(tree_to_list(_root))", "expected": "[3, 1, None, None, 2]"}, {"name": "用例2", "input_code": "sol = Solution()\n_root = list_to_tree([3,1,4,None,None,2])\nsol.recoverTree(_root)\nprint(tree_to_list(_root))", "expected": "[2, 1, 4, None, None, 3]"}]},
     },
     {
         "id": "LC100",
@@ -393,7 +393,7 @@ LC_QUESTIONS = [
         "tags": ["Tree", "Depth-First Search", "Breadth-First Search", "Binary Tree"],
         "expected_points": ["Tree", "Depth-First Search", "Breadth-First Search", "Binary Tree"],
         "difficulty": 2,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def isSameTree(self, p: Optional[TreeNode], q: Optional[TreeNode]) -> bool:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def isSameTree(self, p: Optional[TreeNode], q: Optional[TreeNode]) -> bool:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.isSameTree(p=list_to_tree([1,2,3]), q=list_to_tree([1,2,3])))", "expected": "True"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.isSameTree(p=list_to_tree([1,2]), q=list_to_tree([1,None,2])))", "expected": "False"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(sol.isSameTree(p=list_to_tree([1,2,1]), q=list_to_tree([1,1,2])))", "expected": "False"}]},
     },
     {
         "id": "LC101",
@@ -403,7 +403,7 @@ LC_QUESTIONS = [
         "tags": ["Tree", "Depth-First Search", "Breadth-First Search", "Binary Tree"],
         "expected_points": ["Tree", "Depth-First Search", "Breadth-First Search", "Binary Tree"],
         "difficulty": 2,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def isSymmetric(self, root: Optional[TreeNode]) -> bool:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def isSymmetric(self, root: Optional[TreeNode]) -> bool:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.isSymmetric(root=list_to_tree([1,2,2,3,4,4,3])))", "expected": "True"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.isSymmetric(root=list_to_tree([1,2,2,None,3,None,3])))", "expected": "False"}]},
     },
     {
         "id": "LC102",
@@ -413,7 +413,7 @@ LC_QUESTIONS = [
         "tags": ["Tree", "Breadth-First Search", "Binary Tree"],
         "expected_points": ["Tree", "Breadth-First Search", "Binary Tree"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def levelOrder(self, root: Optional[TreeNode]) -> List[List[int]]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def levelOrder(self, root: Optional[TreeNode]) -> List[List[int]]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.levelOrder(root=list_to_tree([3,9,20,None,None,15,7])))", "expected": "[[3], [9, 20], [15, 7]]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.levelOrder(root=list_to_tree([1])))", "expected": "[[1]]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(sol.levelOrder(root=list_to_tree([])))", "expected": "[]"}]},
     },
     {
         "id": "LC103",
@@ -423,7 +423,7 @@ LC_QUESTIONS = [
         "tags": ["Tree", "Breadth-First Search", "Binary Tree"],
         "expected_points": ["Tree", "Breadth-First Search", "Binary Tree"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def zigzagLevelOrder(self, root: Optional[TreeNode]) -> List[List[int]]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def zigzagLevelOrder(self, root: Optional[TreeNode]) -> List[List[int]]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.zigzagLevelOrder(root=list_to_tree([3,9,20,None,None,15,7])))", "expected": "[[3], [20, 9], [15, 7]]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.zigzagLevelOrder(root=list_to_tree([1])))", "expected": "[[1]]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(sol.zigzagLevelOrder(root=list_to_tree([])))", "expected": "[]"}]},
     },
     {
         "id": "LC113",
@@ -433,7 +433,7 @@ LC_QUESTIONS = [
         "tags": ["Backtracking", "Tree", "Depth-First Search", "Binary Tree"],
         "expected_points": ["Backtracking", "Tree", "Depth-First Search", "Binary Tree"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def pathSum(self, root: Optional[TreeNode], targetSum: int) -> List[List[int]]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def pathSum(self, root: Optional[TreeNode], targetSum: int) -> List[List[int]]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.pathSum(root=list_to_tree([5,4,8,11,None,13,4,7,2,None,None,5,1]), targetSum=22))", "expected": "[[5, 4, 11, 2], [5, 8, 4, 5]]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.pathSum(root=list_to_tree([1,2,3]), targetSum=5))", "expected": "[]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(sol.pathSum(root=list_to_tree([1,2]), targetSum=0))", "expected": "[]"}]},
     },
     {
         "id": "LC124",
@@ -443,7 +443,7 @@ LC_QUESTIONS = [
         "tags": ["Dynamic Programming", "Tree", "Depth-First Search", "Binary Tree"],
         "expected_points": ["Dynamic Programming", "Tree", "Depth-First Search", "Binary Tree"],
         "difficulty": 4,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def maxPathSum(self, root: Optional[TreeNode]) -> int:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def maxPathSum(self, root: Optional[TreeNode]) -> int:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.maxPathSum(root=list_to_tree([1,2,3])))", "expected": "6"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.maxPathSum(root=list_to_tree([-10,9,20,None,None,15,7])))", "expected": "42"}]},
     },
     {
         "id": "LC125",
@@ -463,7 +463,7 @@ LC_QUESTIONS = [
         "tags": ["Stack", "Tree", "Depth-First Search", "Binary Tree"],
         "expected_points": ["Stack", "Tree", "Depth-First Search", "Binary Tree"],
         "difficulty": 2,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def preorderTraversal(self, root: Optional[TreeNode]) -> List[int]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def preorderTraversal(self, root: Optional[TreeNode]) -> List[int]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.preorderTraversal(root=list_to_tree([1,None,2,3])))", "expected": "[1, 2, 3]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.preorderTraversal(root=list_to_tree([1,2,3,4,5,None,8,None,None,6,7,9])))", "expected": "[1, 2, 4, 5, 6, 7, 3, 8, 9]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(sol.preorderTraversal(root=list_to_tree([])))", "expected": "[]"}, {"name": "用例4", "input_code": "sol = Solution()\nprint(sol.preorderTraversal(root=list_to_tree([1])))", "expected": "[1]"}]},
     },
     {
         "id": "LC145",
@@ -473,7 +473,7 @@ LC_QUESTIONS = [
         "tags": ["Stack", "Tree", "Depth-First Search", "Binary Tree"],
         "expected_points": ["Stack", "Tree", "Depth-First Search", "Binary Tree"],
         "difficulty": 2,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def postorderTraversal(self, root: Optional[TreeNode]) -> List[int]:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def postorderTraversal(self, root: Optional[TreeNode]) -> List[int]:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.postorderTraversal(root=list_to_tree([1,None,2,3])))", "expected": "[3, 2, 1]"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.postorderTraversal(root=list_to_tree([1,2,3,4,5,None,8,None,None,6,7,9])))", "expected": "[4, 6, 7, 5, 2, 9, 8, 3, 1]"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(sol.postorderTraversal(root=list_to_tree([])))", "expected": "[]"}, {"name": "用例4", "input_code": "sol = Solution()\nprint(sol.postorderTraversal(root=list_to_tree([1])))", "expected": "[1]"}]},
     },
     {
         "id": "LC151",
@@ -673,7 +673,7 @@ LC_QUESTIONS = [
         "tags": ["Binary Search", "Bit Manipulation", "Tree", "Binary Tree"],
         "expected_points": ["Binary Search", "Bit Manipulation", "Tree", "Binary Tree"],
         "difficulty": 2,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def countNodes(self, root: Optional[TreeNode]) -> int:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def countNodes(self, root: Optional[TreeNode]) -> int:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.countNodes(root=list_to_tree([1,2,3,4,5,6])))", "expected": "6"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.countNodes(root=list_to_tree([])))", "expected": "0"}, {"name": "用例3", "input_code": "sol = Solution()\nprint(sol.countNodes(root=list_to_tree([1])))", "expected": "1"}]},
     },
     {
         "id": "LC225",
@@ -733,7 +733,7 @@ LC_QUESTIONS = [
         "tags": ["Dynamic Programming", "Tree", "Depth-First Search", "Binary Tree"],
         "expected_points": ["Dynamic Programming", "Tree", "Depth-First Search", "Binary Tree"],
         "difficulty": 3,
-        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def rob(self, root: Optional[TreeNode]) -> int:", "test_cases": []},
+        "code": {"language": "python", "function_signature": "# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def rob(self, root: Optional[TreeNode]) -> int:", "test_cases": [{"name": "用例1", "input_code": "sol = Solution()\nprint(sol.rob(root=list_to_tree([3,2,3,None,3,None,1])))", "expected": "7"}, {"name": "用例2", "input_code": "sol = Solution()\nprint(sol.rob(root=list_to_tree([3,4,5,1,3,None,1])))", "expected": "9"}]},
     },
     {
         "id": "LC338",

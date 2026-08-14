@@ -174,6 +174,9 @@ ALLOWED_AST_NODES = {
     ast.USub, ast.UAdd,
     ast.Eq, ast.NotEq, ast.Lt, ast.Gt, ast.LtE, ast.GtE,
     ast.And, ast.Or, ast.Not, ast.In, ast.NotIn,
+    ast.Is, ast.IsNot,  # 身份比较（is / is not）
+    ast.comprehension,  # 列表/字典/集合推导式的子节点（for x in ...）
+    ast.Nonlocal,       # 嵌套函数 nonlocal 声明（闭包计数器等）
     # 其他
     ast.Load, ast.Store, ast.Del, ast.Delete,
     ast.arg, ast.keyword,
@@ -215,6 +218,83 @@ _CPP_FORBIDDEN = [
     "system(", "popen(", "fork(", "exec", "socket(", "ofstream", "ifstream",
     "fopen(", "freopen(", "mmap(", "dlopen", "setuid", "unistd.h",
 ]
+
+# ── LeetCode 节点工具（判题注入） ────────────────────────────────
+# 链表/树题的测试用例需要真实的 ListNode/TreeNode 对象 + 数组↔对象转换。
+# 这段代码在用户代码之前注入（用户代码里的类型注解 `Optional[ListNode]`
+# 在 def 时求值，必须先有类定义）。
+NODE_UTILS_SOURCE = """# ── LeetCode 节点工具（判题注入）──
+from typing import Optional, List
+
+class ListNode:
+    def __init__(self, val=0, next=None):
+        self.val = val
+        self.next = next
+
+class TreeNode:
+    def __init__(self, val=0, left=None, right=None):
+        self.val = val
+        self.left = left
+        self.right = right
+
+def list_to_linkedlist(arr):
+    \"\"\"数组 → 链表（LeetCode 风格）\"\"\"
+    dummy = ListNode(0)
+    cur = dummy
+    for v in arr:
+        cur.next = ListNode(v)
+        cur = cur.next
+    return dummy.next
+
+def linkedlist_to_list(head):
+    \"\"\"链表 → 数组（用于输出比对，防环）\"\"\"
+    res, seen = [], set()
+    while head is not None and id(head) not in seen:
+        seen.add(id(head))
+        res.append(head.val)
+        head = head.next
+    return res
+
+def list_to_tree(arr):
+    \"\"\"层序数组 → 二叉树（null 表示空节点）\"\"\"
+    if not arr:
+        return None
+    root = TreeNode(arr[0])
+    queue = [root]
+    i = 1
+    while queue and i < len(arr):
+        node = queue.pop(0)
+        if i < len(arr) and arr[i] is not None:
+            node.left = TreeNode(arr[i])
+            queue.append(node.left)
+        i += 1
+        if i < len(arr) and arr[i] is not None:
+            node.right = TreeNode(arr[i])
+            queue.append(node.right)
+        i += 1
+    return root
+
+def tree_to_list(root):
+    \"\"\"二叉树 → 层序数组（尾部 null 省略，LeetCode 风格）\"\"\"
+    if root is None:
+        return []
+    res, queue = [], [root]
+    while queue:
+        node = queue.pop(0)
+        if node is None:
+            res.append(None)
+            continue
+        res.append(node.val)
+        queue.append(node.left)
+        queue.append(node.right)
+    while res and res[-1] is None:
+        res.pop()
+    return res
+
+def trees_to_list(trees):
+    \"\"\"List[TreeNode] → List[层序数组]（如 generateTrees）\"\"\"
+    return [tree_to_list(t) for t in trees]
+"""
 
 
 def _compile_command(language: str, src_path: str, exe_path: str) -> list[str] | None:
@@ -612,11 +692,19 @@ def _build_python_script(user_code: str, question: CodeQuestion) -> str:
         "import io",
         "import contextlib",
         "",
-        "# ── 用户代码 ──",
-        user_code,
-        "",
-        "# ── 测试用例 ──",
     ]
+
+    # 链表/树题需要节点工具（类定义 + 数组↔对象转换），注入到用户代码之前。
+    # 用户代码里的 `Optional[ListNode]` 注解在 def 时求值，必须先有类定义。
+    if _needs_node_utils(user_code, question):
+        lines.append("# ── 节点工具（判题注入）──")
+        lines.append(NODE_UTILS_SOURCE.strip())
+        lines.append("")
+
+    lines.append("# ── 用户代码 ──")
+    lines.append(user_code)
+    lines.append("")
+    lines.append("# ── 测试用例 ──")
 
     for i, tc in enumerate(question.test_cases):
         expected_repr = repr(tc.expected)  # Python 源码形式，可直接嵌入脚本
@@ -639,6 +727,19 @@ def _build_python_script(user_code: str, question: CodeQuestion) -> str:
 
     lines.append("")
     return "\n".join(lines)
+
+
+def _needs_node_utils(user_code: str, question: CodeQuestion) -> bool:
+    """是否需要注入节点工具（用户代码引用节点类型，或用例用了转换函数）"""
+    if "ListNode" in user_code or "TreeNode" in user_code:
+        return True
+    for tc in question.test_cases:
+        if any(k in tc.input_code for k in (
+            "list_to_linkedlist", "linkedlist_to_list",
+            "list_to_tree", "tree_to_list", "trees_to_list",
+        )):
+            return True
+    return False
 
 
 def _build_cpp_script(user_code: str, question: CodeQuestion) -> str:

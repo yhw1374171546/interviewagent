@@ -12,6 +12,9 @@ venv/
 htmlcov/
 .coverage.*
 
+# pytest 临时目录（Windows atexit 噪音规避）
+.pt/
+
 # Environment
 .env
 

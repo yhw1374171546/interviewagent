@@ -69,18 +69,19 @@ def select_100(problems: list[dict]) -> list[dict]:
 
 # ── 测试用例生成（尽力而为） ────────────────────────────────────
 
-def extract_signature(prob: dict) -> tuple[str, list[tuple[str, str]]] | None:
-    """从 python3 code_snippet 提取 (方法名, [(参数名, 类型), ...])。
+def extract_signature(prob: dict) -> tuple[str, list[tuple[str, str]], str] | None:
+    """从 python3 code_snippet 提取 (方法名, [(参数名, 类型), ...], 返回类型)。
 
     注意: 链表/树题的模板注释里有 `# def __init__(self, val=0, next=None)`，
     必须限定在 `class Solution:` 之后匹配，否则会误取 __init__。
     """
     snippets = prob.get("code_snippets") or {}
     code = snippets.get("python3", "")
-    m = re.search(r"class Solution:.*?def\s+(\w+)\s*\(self\s*,\s*([^)]*)\)", code, re.S)
+    m = re.search(r"class Solution:.*?def\s+(\w+)\s*\(self\s*,\s*([^)]*)\)\s*(?:->\s*([^:]+))?", code, re.S)
     if not m:
         return None
     method = m.group(1)
+    return_type = (m.group(3) or "").strip()
     params = []
     for p in m.group(2).split(","):
         p = p.strip()
@@ -88,7 +89,7 @@ def extract_signature(prob: dict) -> tuple[str, list[tuple[str, str]]] | None:
             continue
         name, _, typ = p.partition(":")
         params.append((name.strip(), typ.strip()))
-    return method, params
+    return method, params, return_type
 
 
 def parse_example(text: str) -> tuple[dict | None, str | None]:
@@ -126,14 +127,9 @@ def gen_test_cases(prob: dict) -> list[dict]:
     sig = extract_signature(prob)
     if not sig:
         return []
-    method, params = sig
+    method, params, return_type = sig
     param_names = [n for n, _ in params]
-
-    # 复杂类型（链表/树等）: 判题框架无法从数组字面量构造 ListNode/TreeNode，
-    # 这类题不生成判题，走 LLM 评估（如 Add Two Numbers / Binary Tree 系列）
-    param_types = " ".join(t for _, t in params)
-    if "ListNode" in param_types or "TreeNode" in param_types:
-        return []
+    param_types = dict(params)
 
     cases = []
     for ex in prob.get("examples", []):
@@ -144,13 +140,71 @@ def gen_test_cases(prob: dict) -> list[dict]:
         for name, val in inp.items():
             if name not in param_names:
                 return []
-            parsed = safe_literal(val)
-            if parsed is None:
+            expr = _build_param_expr(param_types[name], val)
+            if expr is None:
                 return []
-            kwargs[name] = parsed
-        code = f"sol = Solution()\nprint(sol.{method}({', '.join(f'{k}={v!r}' for k, v in kwargs.items())}))"
+            kwargs[name] = expr
+        code = _build_case_code(method, return_type, params, kwargs, inp)
+        if code is None:
+            return []
         cases.append({"name": f"用例{len(cases) + 1}", "input_code": code, "expected": normalize_expected(out)})
     return cases
+
+
+def _build_param_expr(param_type: str, raw: str) -> str | None:
+    """参数值 → Python 表达式。
+
+    - 普通类型: repr 字面量（如 nums=[2, 7, 11, 15]）
+    - ListNode: list_to_linkedlist([...])（List[ListNode] 逐项构造，如 mergeKLists）
+    - TreeNode: list_to_tree([...])（null → None）
+    """
+    t = param_type.strip()
+    if "ListNode" in t:
+        if t.startswith("List"):  # List[Optional[ListNode]] → mergeKLists
+            items = safe_literal(raw)
+            if not isinstance(items, list):
+                return None
+            return "[" + ", ".join(f"list_to_linkedlist({i!r})" for i in items) + "]"
+        return f"list_to_linkedlist({raw})"
+    if "TreeNode" in t:
+        return f"list_to_tree({raw.replace('null', 'None')})"
+    parsed = safe_literal(raw)
+    if parsed is None:
+        return None
+    return repr(parsed)
+
+
+def _build_case_code(
+    method: str,
+    return_type: str,
+    params: list[tuple[str, str]],
+    kwargs: dict[str, str],
+    inp: dict[str, str],
+) -> str | None:
+    """按返回类型包装调用 → input_code。
+
+    - 返回 ListNode/TreeNode: 序列化后 print（linkedlist_to_list / tree_to_list / trees_to_list）
+    - 返回 None（原地修改，如 recoverTree）: 先构造节点变量，调用后序列化
+    - 其他（int/bool/List[int]...）: 直接 print
+    """
+    rt = return_type.strip()
+    arg_str = ", ".join(f"{k}={v}" for k, v in kwargs.items())
+    if "ListNode" in rt:
+        return f"sol = Solution()\nprint(linkedlist_to_list(sol.{method}({arg_str})))"
+    if "TreeNode" in rt:
+        wrapper = "trees_to_list" if rt.startswith("List") else "tree_to_list"
+        return f"sol = Solution()\nprint({wrapper}(sol.{method}({arg_str})))"
+    if rt in ("None", "NoneType", ""):
+        # 原地修改：构造第一个节点参数为变量，调用后序列化它
+        node_param = next((n for n, t in params if "ListNode" in t or "TreeNode" in t), None)
+        if node_param is None or node_param not in inp:
+            return None
+        var = f"_{node_param}"
+        setup = f"{var} = {_build_param_expr(dict(params)[node_param], inp[node_param])}"
+        call_args = ", ".join(var if n == node_param else n for n, _ in params if n in kwargs or n == node_param)
+        ser = "linkedlist_to_list" if "ListNode" in dict(params)[node_param] else "tree_to_list"
+        return f"sol = Solution()\n{setup}\nsol.{method}({call_args})\nprint({ser}({var}))"
+    return f"sol = Solution()\nprint(sol.{method}({arg_str}))"
 
 
 # ── 生成题库文件 ─────────────────────────────────────────────────

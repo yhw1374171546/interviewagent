@@ -154,7 +154,7 @@ agent/
 | **状态机模式** | `Interviewer` 用 7 个状态管理完整面试生命周期，业务逻辑与 UI 层完全解耦 |
 | **双引擎评估** | 关键词匹配（客观、确定性）→ 正确性/相关性；LLM（语义分析）→ 深度/结构 + 追问决策 |
 | **真实沙箱判题** | AST 白名单审计 → subprocess 隔离 → 真实测试用例 → pass/fail，而非 LLM 主观评分 |
-| **题库检索系统** | 90+ 真题 + 倒排索引 + 标签匹配 + 分层选择（五类题型配比 + 难度分层），覆盖前端/大数据/中间件/AI·LLM 等 12 个方向 |
+| **题库检索系统** | 193 题（93 原创 + 100 LeetCode 精选，含 69 道自动判题用例） + 倒排索引 + 标签匹配 + 分层选择（五类题型配比 + 难度分层），覆盖前端/大数据/中间件/AI·LLM 等 12 个方向 |
 | **追问 Agent 化** | 追问不再硬编码 5 分类，由 `FollowUpAgent` 根据「题目+回答+评估+历史追问」自主决策是否追问、追什么；状态机管骨架，Agent 管追问自由度（混合 Agent），Agent 不可用自动回退规则兜底 |
 | **多 LLM Provider** | 统一接口适配 OpenAI/Anthropic/Ollama，支持 Structure Output + Streaming + Prompt Caching |
 | **生产级可靠性** | 指数退避重试 + 熔断器 + 降级链 + 自动保存恢复 + 系统健康检查 |
@@ -280,12 +280,12 @@ eval→fix→re-eval 闭环后 MAE 下降 37%。
 ## 测试与覆盖率
 
 ```bash
-python -m pytest tests/ -q                    # 192 个测试，全离线可跑（Mock/FakeLLM）
+python -m pytest tests/ -q                    # 255 个测试，全离线可跑（Mock/FakeLLM）
 python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
 ```
 
-- **192 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
-- **核心模块覆盖率 86%**（`interview/` 面试链路 + `core/` LLM 基础设施层），CI 以 80% 为门禁
+- **255 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
+- **核心模块覆盖率 87%**（`interview/` 面试链路 + `core/` LLM 基础设施层），CI 以 80% 为门禁
 - 覆盖：评估器健壮性、记忆、可观测性、LLM-as-judge 评测、流式输出（SSE）、
   JD 解析、题库检索、题目生成、状态机、会话管理、输出校验、代码判题、重试熔断、
   ReAct Agent、多 Agent 编排、异常处理

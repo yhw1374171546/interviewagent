@@ -707,6 +707,32 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段二十六：链表/树题自动判题（50 → 69 道用例）
+
+### 2026-08-14 18:00 | 判题环境注入 ListNode/TreeNode 工具，LeetCode 复杂题真实跑用例
+
+**做了什么**:
+1. **`code_judge.py` 注入节点工具** — 新增 `NODE_UTILS_SOURCE`：判题脚本在用户代码**之前**注入 `ListNode`/`TreeNode` 类定义 + 数组↔对象转换器（`list_to_linkedlist`/`linkedlist_to_list`、`list_to_tree`/`tree_to_list`、`trees_to_list`，树用层序数组、尾部 null 省略，与 LeetCode 输出格式一致）。用户代码里的 `Optional[ListNode]` 注解在 def 时求值，必须先有类定义，所以注入块放在用户代码前。
+2. **`tools/import_leetcode.py` 用例生成器升级** — `extract_signature` 增加返回类型提取（`-> Optional[ListNode]`）；`gen_test_cases` 按参数/返回类型分派：
+   - ListNode/TreeNode 参数 → `list_to_linkedlist([...])` / `list_to_tree([...])`（`List[ListNode]` 逐项构造，mergeKLists；null → None）
+   - ListNode/TreeNode 返回 → `linkedlist_to_list` / `tree_to_list` / `trees_to_list` 序列化后 print
+   - 返回 None（原地修改，recoverTree）→ 构造节点变量、调用后序列化
+   - 普通类型（int/bool/List[int]）→ 直接 print
+3. **顺带修复既有 bug（LC095 generateTrees）** — 参数是 int 不含节点类型，旧逻辑走了普通路径生成用例，但返回 `List[TreeNode]` 打印的是对象内存地址，**该用例永远 WA**。现在按返回类型包装 `trees_to_list`，实测 2/2 AC。
+4. **AST 白名单补缺** — 链表/树题用户代码常用 `is not None`、列表推导、`nonlocal`，但白名单缺 `ast.Is/IsNot/comprehension/Nonlocal`，会误杀合法解法。补齐（纯语法节点，无安全面扩大）。
+5. **新增 `tools/verify_lc_judge.py` 验证器** — 手写 20 道链表/树题参考实现，逐题断言「正确实现 AC + 错误实现非 AC（区分度）」，防生成器回归。
+6. **测试 +44**（236 → 255）：`test_code_judge.py` 新增节点判题/白名单用例、`tests/test_import_leetcode.py`（生成器 12 例：签名提取、节点参数包装、原地修改、generateTrees 修复）。
+
+**结果**: 自动判题用例 **50 → 69 道**（+19），LeetCode 链表/树经典题（Add Two Numbers、Merge k Sorted Lists、Level Order、Max Path Sum、House Robber III 等）全部可真实跑用例判 AC/WA；覆盖率 86% → **87%**。
+
+**为什么这么做**: 之前「题干注释里有 ListNode 构造定义为什么不能判题」——注释只是提示，判题沙箱里并没有 ListNode 类、没有数组→对象构造器、没有对象→数组序列化器，三样缺一不可。LeetCode 平台是隐藏注入这三样，我们的沙箱补上同样能力，复杂题从「LLM 评估」升级为「真实用例判定」。
+
+**实测**: `tools/verify_lc_judge.py` 100 题全绿（20 道参考实现 AC + 区分度 OK，其余 SKIP/LLM 评估）；255 测试全绿；ruff 零错误；benchmark 无回归（判题检出 6/6）。
+
+**经验**: ① 判题不只是「跑起来」，输入要能构造对象、输出要能序列化比较，缺一环就只能靠 LLM 猜；② 生成器按「参数类型 × 返回类型」双维分派，比按题目人工分类可扩展（新增数据源题也能自动生成）；③ 白名单缺节点会让「合法解法被误杀」，用参考实现跑一遍全量用例是发现这类隐性 bug 的最快路径。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
