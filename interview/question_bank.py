@@ -679,6 +679,8 @@ QUESTION_BANK: list[BankQuestion] = [
             "test_cases": [
                 {"name": "初始词表", "input_code": "print(' '.join(sorted(bpe('ab', 2))))", "expected": "a b"},
                 {"name": "合并高频对", "input_code": "print(' '.join(sorted(bpe('ab ab', 3))))", "expected": "a ab b"},
+                {"name": "单字符语料", "input_code": "print(' '.join(sorted(bpe('a', 1))))", "expected": "a"},
+                {"name": "多词迭代合并", "input_code": "print(' '.join(sorted(bpe('aa aa aa', 2))))", "expected": "a aa"},
             ],
         },
     ),
@@ -751,6 +753,9 @@ QUESTION_BANK: list[BankQuestion] = [
                 {"name": "更新已存在的key", "input_code": "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\ncache.put(1, 10)\nprint(cache.get(1))\nprint(cache.get(2))", "expected": "10\n2"},
                 {"name": "容量为1的边界情况", "input_code": "cache = LRUCache(1)\ncache.put(1, 1)\ncache.put(2, 2)\nprint(cache.get(1))\nprint(cache.get(2))", "expected": "-1\n2"},
                 {"name": "get后淘汰最久未使用", "input_code": "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\nprint(cache.get(1))\ncache.put(3, 3)\nprint(cache.get(1))\nprint(cache.get(2))\nprint(cache.get(3))", "expected": "1\n1\n-1\n3"},
+                {"name": "空缓存 get 返回 -1", "input_code": "cache = LRUCache(2)\nprint(cache.get(1))\nprint(cache.get(2))", "expected": "-1\n-1"},
+                {"name": "更新不触发淘汰", "input_code": "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\ncache.put(1, 10)\ncache.put(2, 20)\nprint(cache.get(1))\nprint(cache.get(2))", "expected": "10\n20"},
+                {"name": "重复 get 后淘汰", "input_code": "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\nprint(cache.get(1))\nprint(cache.get(1))\ncache.put(3, 3)\nprint(cache.get(2))\nprint(cache.get(3))", "expected": "1\n1\n-1\n3"},
             ],
         },
     ),
@@ -766,6 +771,8 @@ QUESTION_BANK: list[BankQuestion] = [
             "test_cases": [
                 {"name": "基本统计", "input_code": 'logs = ["ERROR disk full", "INFO started", "ERROR timeout", "WARN slow", "INFO ok"]\nres = count_by_level(logs)\nfor k in sorted(res):\n    print(f"{k}={res[k]}")', "expected": "ERROR=2\nINFO=2\nWARN=1"},
                 {"name": "空输入", "input_code": "res = count_by_level([])\nprint(len(res))", "expected": "0"},
+                {"name": "单个级别多条", "input_code": 'res = count_by_level(["ERROR a", "ERROR b", "ERROR c"])\nprint(res.get("ERROR", 0))', "expected": "3"},
+                {"name": "多级别混合", "input_code": 'logs = ["ERROR x", "INFO y", "DEBUG z", "INFO w", "WARN v"]\nres = count_by_level(logs)\nfor k in sorted(res):\n    print(f"{k}={res[k]}")', "expected": "DEBUG=1\nERROR=1\nINFO=2\nWARN=1"},
             ],
         },
     ),
@@ -788,6 +795,8 @@ QUESTION_BANK: list[BankQuestion] = [
             "test_cases": [
                 {"name": "基础用例", "input_code": 'vector<int> nums = {2, 7, 11, 15};\nvector<int> r = two_sum(nums, 9);\ncout << r[0] << " " << r[1];', "expected": "0 1"},
                 {"name": "重复元素", "input_code": 'vector<int> nums = {3, 3};\nvector<int> r = two_sum(nums, 6);\ncout << r[0] << " " << r[1];', "expected": "0 1"},
+                {"name": "负数无序", "input_code": 'vector<int> nums = {-3, 4, 3, 90};\nvector<int> r = two_sum(nums, 0);\ncout << r[0] << " " << r[1];', "expected": "0 2"},
+                {"name": "结果下标有序", "input_code": 'vector<int> nums = {1, 2, 3, 4};\nvector<int> r = two_sum(nums, 7);\ncout << r[0] << " " << r[1];', "expected": "2 3"},
             ],
         },
     ),
@@ -804,6 +813,8 @@ QUESTION_BANK: list[BankQuestion] = [
             "test_cases": [
                 {"name": "基础", "input_code": "1 2", "expected": "3"},
                 {"name": "负数", "input_code": "-1 5", "expected": "4"},
+                {"name": "零", "input_code": "0 0", "expected": "0"},
+                {"name": "大数", "input_code": "1000000 2000000", "expected": "3000000"},
             ],
         },
     ),
