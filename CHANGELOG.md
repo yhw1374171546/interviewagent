@@ -689,6 +689,24 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 ---
 
+## 阶段二十五：题库扩充 LeetCode 100 题（93 → 193 题）
+
+### 2026-08-14 16:30 | 接入 LeetCode Problems JSON Dataset，代码题选择面扩大 17 倍
+
+**做了什么**:
+1. **`tools/import_leetcode.py` 导入器** — 从 LeetCode JSON Dataset（2913 题）按「难度均衡（Easy 40/Medium 45/Hard 15）+ 主题覆盖（41 个主题，每主题≤6）+ 经典优先（frontend_id 靠前）」选取 100 道，生成 `interview/leetcode_bank.py` 并合并进 `QUESTION_BANK`（93 → **193 题**，CODING 6 → 106 道）。
+2. **examples → 测试用例自动生成（尽力而为）** — 从题目 examples 提取 Input/Output：解析参数（`ast.literal_eval` 安全解析 Python 字面量）、从 python3 code_snippet 提取方法签名、输出规范化（list 用 repr 对齐 `print`、`true/false/null` 转 Python、字符串去引号）。**49/100 道**成功生成可判题用例（Two Sum 实测 3/3 AC）；树/链表等复杂题不带判题，走 LLM 评估。
+3. **RAG 数据源再扩展** — 生成 `leetcode_solutions.py`（100 条英文面经，从官方 solution 提取算法思路），面经库 **419 → 519 条**（22 内置 + 397 知识库 + 100 LC），让 RAG 也能覆盖英文 LeetCode 题。
+4. **指标大幅提升** — 参考答案 36→**143.6 字**（+296%）、信息密度 7.2→**15.9**（+174%）、面经覆盖 **72.5%**（140/193 题，严格阈值）。
+
+**为什么这么做**: 题库太少是产品短板（93 题里代码题仅 6 道）。LeetCode 数据集是公开的经典题库，接入后代码实操题选择面从 6 → 106 道，且大部分题目自带示例可自动生成判题用例——「出题 → 判题 → 参考答案」全链路对 LeetCode 题也成立。
+
+**实测**: 236 测试全绿（题库 193 题不影响现有断言）；ruff 零错误；LC001（Two Sum）判题 3/3 AC；feature_eval 命中率 72.5%、答案 143.6 字。
+
+**经验**: ① 外部数据集接入的核心是「字段映射 + 降级」——examples 解析失败就安全降级为 LLM 评估，不阻塞；② LeetCode 输出格式（`[0,1]`、`true`）和 Python `print`（`[0, 1]`、`True`）不一致，期望输出必须规范化，否则判题永远失败；③ 难度/主题配额让选取可解释（简历能说"Easy 40/Medium 45/Hard 15"），而不是"随便挑 100 道"。
+
+---
+
 ## 技术决策速查表
 
 | 决策 | 选型 | 为什么不选替代方案 |
