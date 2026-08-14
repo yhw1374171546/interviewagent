@@ -34,6 +34,7 @@ from core.llm import LLMClient, Message, Role
 from utils.logger import get_logger
 
 from .evaluator import AnswerEvaluator, EvaluationResult, FollowUpDecision
+from .follow_up_agent import FollowUpAgent
 from .jd_parser import JDAnalysis, JDParser
 from .memory_context import (
     InterviewMemory,
@@ -218,6 +219,8 @@ class Interviewer:
         self.question_gen = QuestionGenerator(llm_client)
         self.evaluator = AnswerEvaluator(llm_client)
         self.report_gen = ReportGenerator(self.llm_strong)
+        # 追问自主决策 Agent（快模型）— 追问环节的"大脑"，失败时回退评估器 5 分类
+        self.follow_up_agent = FollowUpAgent(llm_client)
 
         # 会话状态
         self.state = InterviewState(max_follow_ups=max_follow_ups)
@@ -430,11 +433,34 @@ class Interviewer:
             session_id=self.session_id,
         ))
 
-        # 判断是否需要追问
-        should_follow_up = (
-            evaluation.follow_up_decision != FollowUpDecision.MOVE_ON
-            and self.state.current_follow_up_count < self.max_follow_ups
-        )
+        # 追问决策（混合 Agent）：
+        # 1. 确定性边界短路（超短/垃圾/复读）→ 评估器已明确判断需追问，直接保留（不覆盖）
+        # 2. 正常评估 → FollowUpAgent 自主决策；Agent 不可用 → 回退评估器 5 分类
+        boundary_reasons = ("回答过短", "检测到无效输入", "检测到题目复读")
+        if evaluation.follow_up_reason in boundary_reasons:
+            should_follow_up = (
+                evaluation.follow_up_decision != FollowUpDecision.MOVE_ON
+                and self.state.current_follow_up_count < self.max_follow_ups
+            )
+            follow_up_q = evaluation.follow_up_question
+        else:
+            decision = await self.follow_up_agent.decide(
+                question, answer, evaluation,
+                asked_follow_ups=self._asked_follow_ups(question),
+            )
+            if decision["continue_follow_up"] is None:
+                # Agent 不可用 → 回退评估器 5 分类（不中断面试）
+                should_follow_up = (
+                    evaluation.follow_up_decision != FollowUpDecision.MOVE_ON
+                    and self.state.current_follow_up_count < self.max_follow_ups
+                )
+                follow_up_q = evaluation.follow_up_question
+            elif decision["continue_follow_up"] and self.state.current_follow_up_count < self.max_follow_ups:
+                should_follow_up = True
+                follow_up_q = decision["question"] or evaluation.follow_up_question
+            else:
+                should_follow_up = False
+                follow_up_q = ""
 
         if should_follow_up:
             self.state.current_follow_up_count += 1
@@ -442,7 +468,7 @@ class Interviewer:
 
             return TurnResult(
                 phase=InterviewPhase.FOLLOW_UP,
-                message=evaluation.follow_up_question,
+                message=follow_up_q,
                 question=question,  # 同一个题目的追问
                 evaluation=evaluation,
                 progress=f"{self.state.progress} (追问 {self.state.current_follow_up_count}/{self.state.max_follow_ups})",
@@ -733,6 +759,17 @@ class Interviewer:
             max_tokens=600,
         )
         return response.content.strip()
+
+    def _asked_follow_ups(self, question: InterviewQuestion) -> list[str]:
+        """收集本题历史已追问的问题（排除当前这条），供 Agent 避免重复追问"""
+        qs = []
+        for a in self.state.answers[:-1]:
+            if a.get("question") != question:
+                continue
+            ev = a.get("evaluation")
+            if ev and ev.follow_up_question:
+                qs.append(ev.follow_up_question)
+        return qs
 
     def _format_feedback(self, evaluation: EvaluationResult) -> str:
         """格式化单题反馈"""

@@ -55,6 +55,8 @@ class MockLLMClient(LLMClient):
             content = self._warmup()
         elif "follow_up_decision" in prompt:
             content = self._evaluation(prompt)
+        elif "自主判断" in prompt and "追问" in prompt:
+            content = self._follow_up_agent(prompt)
         elif "overall_score" in prompt and "面试记录" in prompt:
             content = self._report(prompt)
         elif "微调" in prompt and "当前题目" in prompt:
@@ -164,6 +166,19 @@ class MockLLMClient(LLMClient):
             "follow_up_question": fq,
             "follow_up_reason": f"关键词命中 {match_rate:.0%}，长度 {n} 字",
         }, ensure_ascii=False)
+
+    def _follow_up_agent(self, prompt: str) -> str:
+        """追问自主决策 — 确定性：有未命中要点就继续追问（贴题），否则停止"""
+        m = re.search(r"未命中要点: (.+)", prompt)
+        missed = m.group(1).strip() if m else ""
+        if missed and missed != "无":
+            first = missed.split("、")[0]
+            return json.dumps({
+                "continue": True,
+                "question": f"你刚才没有提到「{first}」，能展开说说吗？",
+                "reason": "有关键要点未覆盖",
+            }, ensure_ascii=False)
+        return json.dumps({"continue": False, "question": "", "reason": "回答已充分"}, ensure_ascii=False)
 
     def _stream_narrative(self, prompt: str) -> str:
         """流式报告叙事 — 确定性改进建议（纯文本，供 SSE 演示）"""
