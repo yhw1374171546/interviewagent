@@ -114,6 +114,75 @@ QA_ENTRIES: list[QaEntry] = [
                "线程共享进程内存，切换由内核调度（有上下文切换开销）；协程切换在用户态，"
                "开销极小，适合 IO 密集；进程隔离性强、成本高。",
     ),
+    QaEntry(
+        id="QA013", question="Go 的 GMP 调度模型",
+        tags=["go", "golang", "goroutine", "并发"],
+        answer="G 是 goroutine，M 是内核线程，P 是逻辑处理器（本地队列）。"
+               "P 持有本地可运行 G 队列，M 绑定 P 执行 G；G 阻塞时 M 与 P 解绑、调度器唤醒新 M 顶上，"
+               "保证 P 不被阻塞线程拖住；work stealing 让空闲 P 偷其他 P 的 G，负载均衡。",
+    ),
+    QaEntry(
+        id="QA014", question="Java synchronized 锁升级过程",
+        tags=["java", "并发", "synchronized"],
+        answer="无锁 → 偏向锁（同线程重入无竞争，Mark Word 记录线程 ID）→ 轻量级锁（CAS 自旋，"
+               "短临界区避免内核切换）→ 重量级锁（竞争激烈时挂起阻塞，走互斥量）。"
+               "锁升级是 JVM 的优化：越轻的锁开销越小，只有竞争加剧才升级。",
+    ),
+    QaEntry(
+        id="QA015", question="Docker 镜像分层和写时复制",
+        tags=["docker", "容器", "镜像"],
+        answer="镜像由只读分层（Layer）组成，复用相同基础层节省存储；"
+               "写时复制（CoW）：容器运行层的修改先复制再写，不污染只读镜像层。"
+               "构建优化：合并 RUN 减少层数、用 .dockerignore、利用构建缓存、选小基础镜像（alpine）。",
+    ),
+    QaEntry(
+        id="QA016", question="Kafka 的 ISR 机制和 Leader 选举",
+        tags=["kafka", "消息队列", "可靠性"],
+        answer="ISR（In-Sync Replica）：与 Leader 保持同步的副本集合。"
+               "acks=all 时 Leader 等 ISR 全部确认才返回；follower 落后太多会被踢出 ISR。"
+               "Leader 故障时从 ISR 中选新 Leader（ISR 内优先，保证不丢已提交数据）。",
+    ),
+    QaEntry(
+        id="QA017", question="向量数据库核心索引 HNSW 原理",
+        tags=["向量数据库", "hnsw", "faiss", "检索"],
+        answer="HNSW 是分层可导航小世界图：多层图，顶层稀疏（长跳）、底层稠密（精搜）。"
+               "查询从顶层贪心向下跳，近似最近邻。比暴力搜索快几个数量级，"
+               "召回率与速度可调（M/efConstruction 参数）。",
+    ),
+    QaEntry(
+        id="QA018", question="Function Calling 的底层实现",
+        tags=["llm", "大模型", "function calling", "agent"],
+        answer="把工具定义（名称/描述/参数 JSON Schema）拼进 Prompt，LLM 在生成时输出结构化的"
+               "工具调用（名称 + 参数 JSON），而非自然语言。应用层解析后执行工具，把结果回传给 LLM 继续生成。"
+               "参数幻觉用 JSON Schema 约束 + 校验重试缓解。",
+    ),
+    QaEntry(
+        id="QA019", question="HTTP/1.1、HTTP/2、HTTP/3 的区别",
+        tags=["http", "http2", "http3", "网络协议"],
+        answer="HTTP/1.1 队头阻塞（一个连接一个请求）；HTTP/2 多路复用（二进制分帧）+ HPACK 头部压缩，"
+               "但 TCP 层仍有队头阻塞；HTTP/3 基于 QUIC（UDP），连接迁移 + 0-RTT 握手，彻底解决队头阻塞。",
+    ),
+    QaEntry(
+        id="QA020", question="Redis 缓存穿透、击穿、雪崩",
+        tags=["redis", "缓存", "高并发"],
+        answer="穿透：查不存在的数据 → 布隆过滤器拦截或缓存空值；"
+               "击穿：热点 key 过期瞬间高并发打 DB → 互斥锁/逻辑过期；"
+               "雪崩：大量 key 同时过期 → 过期时间加随机抖动、多级缓存。",
+    ),
+    QaEntry(
+        id="QA021", question="数据倾斜的定位与解决",
+        tags=["spark", "flink", "数据倾斜"],
+        answer="倾斜=少数 key 数据量/计算量远大于其他。定位：看各 task 耗时/数据量分布。"
+               "解决：两阶段聚合（先局部聚合再加盐打散）、广播小表 join、"
+               "热点 key 单独处理、调并行度。",
+    ),
+    QaEntry(
+        id="QA022", question="分布式事务的最终一致性方案",
+        tags=["kafka", "rocketmq", "分布式", "事务"],
+        answer="常见方案：本地消息表（业务与消息同库事务）、事务消息（RocketMQ 半消息）、"
+               "TCC（Try-Confirm-Cancel）。核心是保证「业务操作」与「发消息」原子，"
+               "消费端做幂等（唯一 ID/状态机），配合定时对账兜底。",
+    ),
 ]
 
 
