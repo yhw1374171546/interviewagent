@@ -263,8 +263,8 @@ eval→fix→re-eval 闭环后 MAE 下降 37%。
 
 ## 功能增强量化评测（Before / After）
 
-`python eval/feature_eval.py` 对最近的工程增强做前后对比（全离线可复现），
-报告见 [docs/feature_eval_report.md](docs/feature_eval_report.md)：
+三个离线评测脚本 + 真实联调数据构成完整量化证据链，完整报告见
+[docs/feature_eval_report.md](docs/feature_eval_report.md)：
 
 | 指标 | Before | After |
 |------|:---:|:---:|
@@ -272,6 +272,10 @@ eval→fix→re-eval 闭环后 MAE 下降 37%。
 | 参考答案平均长度 | 36 字（关键词罗列） | **86 字**（RAG 面经） |
 | 参考答案信息密度 | 7.2 | **13.4** |
 | 面经检索命中率（22 条面经覆盖 93 题） | — | **57%** |
+| 评估评分 MAE / Pearson（judge_eval） | — | **1.31 / 0.929**（真实 LLM：0.94 / 0.991） |
+| 单次评估延迟 / 单场成本（真实联调） | 17.6s / — | **5.4s / ¥0.049** |
+
+复现：`python eval/feature_eval.py` + `python eval/judge_eval.py --mock` + `python benchmark.py`，全离线。
 
 ## 测试与覆盖率
 
