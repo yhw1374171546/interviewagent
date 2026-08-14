@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.mock_llm import MockLLMClient
 from eval.dataset import EVAL_SAMPLES
 from interview.evaluator import AnswerEvaluator
+from interview.follow_up_agent import FollowUpAgent
 from interview.question_bank import QUESTION_BANK, QuestionBankRetriever
 from utils.logger import get_logger
 
@@ -101,6 +102,8 @@ def follow_up_is_relevant(question_text: str, expected_points: list[str],
 
 async def run_eval(llm, samples: list[dict], repeat: int) -> dict:
     evaluator = AnswerEvaluator(llm)
+    # 项目已 Agent 化：追问由 FollowUpAgent 自主决策（评分仍用评估器）
+    follow_up_agent = FollowUpAgent(llm)
     results = []
 
     t0 = time.time()
@@ -118,11 +121,25 @@ async def run_eval(llm, samples: list[dict], repeat: int) -> dict:
         ev = details[-1]  # 取最后一次的评估做质量分析
         avg_score = statistics.mean(scores)
         std = statistics.pstdev(scores) if len(scores) > 1 else 0.0
-        relevant = follow_up_is_relevant(
-            sample["question"].question,
-            sample["question"].expected_points,
-            sample["answer"],
-            ev.follow_up_question,
+
+        # 追问贴题率：FollowUpAgent 自主决策的追问（Agent 化后的真实追问来源）。
+        # Agent 决定不追问（回答已充分）→ 追问文本置空，不计入贴题率统计。
+        decision = await follow_up_agent.decide(
+            sample["question"], sample["answer"], ev, [],
+        )
+        agent_follow_up = (
+            decision["question"] if decision["continue_follow_up"] and decision["question"]
+            else ""
+        )
+        relevant = (
+            follow_up_is_relevant(
+                sample["question"].question,
+                sample["question"].expected_points,
+                sample["answer"],
+                agent_follow_up,
+            )
+            if agent_follow_up
+            else False
         )
 
         results.append({
@@ -130,7 +147,7 @@ async def run_eval(llm, samples: list[dict], repeat: int) -> dict:
             "avg_score": round(avg_score, 1),
             "std": round(std, 2),
             "scores": [round(s, 1) for s in scores],
-            "follow_up": ev.follow_up_question[:60],
+            "follow_up": agent_follow_up[:60],
             "follow_up_relevant": relevant,
             "decision": ev.follow_up_decision.value,
         })

@@ -360,6 +360,8 @@ class CountingLLM(MockLLMClient):
                 break
         if "开场白" in prompt:
             self.stages["warmup"] += 1
+        elif "自主判断" in prompt and "追问" in prompt:
+            self.stages["follow_up_agent"] += 1  # 追问自主决策（Agent 化）
         elif "follow_up_decision" in prompt:
             self.stages["evaluation"] += 1
         elif "overall_score" in prompt:
@@ -474,6 +476,7 @@ def bench_s5():
         notes = {
             "warmup": "暖场开场白（必要）",
             "evaluation": "逐题深度评估（必要）",
+            "follow_up_agent": "追问自主决策（Agent 化，贴题率 100%）",
             "report": "最终报告（必要）",
             "jd_fallback": "JD 解析兜底 — 只传规则未匹配片段（混合方案）",
             "question_customize": "题库题微调（可选）",
