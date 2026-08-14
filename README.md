@@ -261,6 +261,18 @@ python -m uvicorn web.server:app --app-dir C:/Users/13741/Desktop/code/agent --h
 评测驱动了真实修复：高分回答曾被系统性低估（关键词引擎中文匹配缺陷），
 eval→fix→re-eval 闭环后 MAE 下降 37%。
 
+## 功能增强量化评测（Before / After）
+
+`python eval/feature_eval.py` 对最近的工程增强做前后对比（全离线可复现），
+报告见 [docs/feature_eval_report.md](docs/feature_eval_report.md)：
+
+| 指标 | Before | After |
+|------|:---:|:---:|
+| 追问贴题率 | 0%（规则通用话术） | **100%**（FollowUpAgent 自主决策） |
+| 参考答案平均长度 | 36 字（关键词罗列） | **86 字**（RAG 面经） |
+| 参考答案信息密度 | 7.2 | **13.4** |
+| 面经检索命中率（22 条面经覆盖 93 题） | — | **57%** |
+
 ## 测试与覆盖率
 
 ```bash
