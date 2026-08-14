@@ -329,14 +329,19 @@ async def run_judge(
     question: CodeQuestion,
     timeout_sec: int | None = None,
     language: str = "python",
+    mode: str = "core",
 ) -> JudgeResult:
     """
     执行代码判题。
 
+    两种模式:
+        - core（核心代码）: 用户只写函数/类定义，测试框架拼接调用代码执行
+        - acm（完整程序）: 用户写完整程序（读 stdin 写 stdout），测试输入经 stdin 传入
+
     流程:
-        1. 安全检查（Python=AST 白名单，JS=黑名单+超时）
-        2. 写入用户代码到临时文件
-        3. 追加测试代码
+        1. 安全检查（Python=AST 白名单，C++=黑名单+超时）
+        2. 写入用户代码到临时文件（编译型语言先编译）
+        3. 追加测试代码（core）或经 stdin 喂输入（acm）
         4. subprocess 隔离执行
         5. 比较 stdout 与预期输出
         6. 返回测试报告
@@ -345,7 +350,8 @@ async def run_judge(
         user_code: 用户提交的代码
         question: 编程题（包含测试用例）
         timeout_sec: 超时时间
-        language: 编程语言（python / javascript）
+        language: 编程语言（python / cpp）
+        mode: 判题模式（core / acm）
 
     Returns:
         JudgeResult: 完整的判题结果
@@ -360,6 +366,10 @@ async def run_judge(
             errors=1,
             details=[{"name": "不支持的语言", "passed": False, "error": f"不支持: {language}"}],
         )
+
+    # 0.5 ACM 完整程序模式 → 独立执行路径
+    if mode == "acm":
+        return await _run_acm(user_code, question, language, timeout)
 
     # 1. 安全检查
     safe, err_msg = audit_code_safety(user_code, language)
@@ -434,6 +444,112 @@ async def run_judge(
 
     finally:
         # 清理临时源码与编译产物
+        for path in (src_path, exe_path):
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+
+async def _run_acm(
+    user_code: str,
+    question: CodeQuestion,
+    language: str,
+    timeout: float,
+) -> JudgeResult:
+    """
+    ACM 完整程序模式判题。
+
+    与 core 模式的区别: 用户写的是完整程序（自己读 stdin、写 stdout），
+    判题器把每个测试用例的 input_code 作为 stdin 喂给程序，比对 stdout。
+    （牛客/传统 OJ 的提交方式）
+    """
+    safe, err_msg = audit_code_safety(user_code, language)
+    if not safe:
+        return JudgeResult(
+            passed=False,
+            total_tests=len(question.test_cases),
+            errors=1,
+            details=[{"name": "安全检查", "passed": False, "error": err_msg}],
+        )
+
+    ext = LANGUAGES[language]["ext"]
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=ext, delete=False, encoding="utf-8"
+    ) as f:
+        f.write(user_code)
+        src_path = f.name
+
+    exe_path = None
+    try:
+        # 编译（编译型语言）
+        compile_cmd = _compile_command(language, src_path, src_path + ".exe")
+        if compile_cmd is not None:
+            exe_path = src_path + ".exe"
+            compile_proc = await asyncio.create_subprocess_exec(
+                *compile_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, compile_err = await compile_proc.communicate()
+            if compile_proc.returncode != 0:
+                err_text = compile_err.decode("utf-8", errors="replace").strip()
+                return JudgeResult(
+                    passed=False,
+                    total_tests=len(question.test_cases),
+                    errors=1,
+                    details=[{"name": "编译错误", "passed": False, "error": err_text[:300]}],
+                    stderr=err_text[:500],
+                )
+
+        run_cmd = _runner_command(language, src_path, exe_path or "")
+
+        details = []
+        passed = 0
+        failed = 0
+        for i, tc in enumerate(question.test_cases):
+            proc = await asyncio.create_subprocess_exec(
+                *run_cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_bytes, _ = await asyncio.wait_for(
+                    proc.communicate(input=tc.input_code.encode("utf-8")),
+                    timeout=timeout,
+                )
+            except TimeoutError:
+                proc.kill()
+                await proc.wait()
+                failed += 1
+                details.append({"name": tc.name, "passed": False, "error": "超时"})
+                continue
+
+            out = stdout_bytes.decode("utf-8", errors="replace").strip()
+            if out == tc.expected:
+                passed += 1
+                details.append({"name": tc.name, "passed": True})
+            else:
+                failed += 1
+                details.append({
+                    "name": tc.name,
+                    "passed": False,
+                    "expected": tc.expected,
+                    "got": out,
+                })
+
+        return JudgeResult(
+            passed=(passed == len(question.test_cases) and failed == 0),
+            total_tests=len(question.test_cases),
+            passed_tests=passed,
+            failed_tests=failed,
+            errors=0,
+            details=details,
+        )
+
+    finally:
         for path in (src_path, exe_path):
             if path:
                 try:

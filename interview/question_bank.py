@@ -783,6 +783,22 @@ QUESTION_BANK: list[BankQuestion] = [
             ],
         },
     ),
+    BankQuestion(
+        id="COD004", type=QuestionType.CODING, category="算法",
+        question="请用 Python 编写一个完整程序（ACM 模式）：从标准输入读入两个整数 a 和 b，输出它们的和。要求自己读取 stdin 并输出到 stdout。",
+        tags=["python", "算法", "ACM"],
+        expected_points=["读取输入", "计算", "输出"],
+        difficulty=1,
+        code={
+            "language": "python",
+            "mode": "acm",
+            "function_signature": "（ACM 完整程序：自行读取 stdin，输出 stdout）",
+            "test_cases": [
+                {"name": "基础", "input_code": "1 2", "expected": "3"},
+                {"name": "负数", "input_code": "-1 5", "expected": "4"},
+            ],
+        },
+    ),
 ]
 
 

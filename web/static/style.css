@@ -589,6 +589,9 @@ body {
   border-radius: 999px;
   text-transform: capitalize;
 }
+.code-mode-badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+.code-mode-badge.core { color: #7c3aed; background: #f3e8ff; }
+.code-mode-badge.acm { color: #b45309; background: #fef3c7; }
 .code-close {
   background: none;
   border: none;

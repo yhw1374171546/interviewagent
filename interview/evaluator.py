@@ -381,7 +381,11 @@ class AnswerEvaluator:
         )
 
         try:
-            judge = await run_judge(answer, code_question, language=language)
+            judge = await run_judge(
+                answer, code_question,
+                language=language,
+                mode=code_meta.get("mode", "core"),
+            )
         except Exception as e:  # 判题器自身异常 → 不中断面试，降级为提示
             return EvaluationResult(
                 correctness=3, depth=5, structure=5, relevance=5,

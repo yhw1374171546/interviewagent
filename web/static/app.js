@@ -784,8 +784,15 @@ function openCodeModal(q) {
   }
   const code = q.code || {};
   $("#code-lang").textContent = code.language || "python";
+  const mode = code.mode || "core";
+  const modeEl = $("#code-mode");
+  modeEl.textContent = mode === "acm" ? "ACM 完整程序" : "核心代码";
+  modeEl.className = "code-mode-badge " + (mode === "acm" ? "acm" : "core");
   $("#code-signature").textContent = code.function_signature || "";
   $("#code-editor").value = "";
+  $("#code-editor").placeholder = mode === "acm"
+    ? "编写完整程序：自行读取标准输入（stdin），结果输出到标准输出（stdout）…"
+    : "在这里编写你的代码（只需写函数/类定义，无需写 main）…";
   $("#code-modal").hidden = false;
   $("#code-editor").focus();
 }

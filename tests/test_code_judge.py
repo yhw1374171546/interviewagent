@@ -186,3 +186,35 @@ class TestCppJudge:
         result = run(run_judge(CPP_CORRECT, CPP_TWOSUM, language="ruby"))
         assert result.passed is False
         assert result.details[0]["name"] == "不支持的语言"
+
+
+# ── ACM 完整程序模式 ──────────────────────────────────────────
+
+ACM_ADD = CodeQuestion(
+    id="COD004", title="两数之和", description="", function_signature="（ACM）",
+    example_input="", example_output="",
+    test_cases=[
+        CodeTestCase(name="基础", input_code="1 2", expected="3"),
+        CodeTestCase(name="负数", input_code="-1 5", expected="4"),
+    ],
+)
+
+ACM_CORRECT = "a, b = map(int, input().split())\nprint(a + b)\n"
+
+
+class TestAcmMode:
+
+    def test_acm_correct_passes(self):
+        result = run(run_judge(ACM_CORRECT, ACM_ADD, language="python", mode="acm"))
+        assert result.passed is True
+        assert result.passed_tests == 2
+
+    def test_acm_wrong_fails(self):
+        result = run(run_judge("print(0)\n", ACM_ADD, language="python", mode="acm"))
+        assert result.passed is False
+        assert result.details[0]["got"] == "0"
+
+    def test_acm_timeout(self):
+        result = run(run_judge("while True:\n    pass", ACM_ADD, language="python", mode="acm", timeout_sec=0.2))
+        assert result.passed is False
+        assert result.details[0]["error"] == "超时"
