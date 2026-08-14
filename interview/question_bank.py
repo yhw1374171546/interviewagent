@@ -668,11 +668,19 @@ QUESTION_BANK: list[BankQuestion] = [
     ),
     BankQuestion(
         id="AI016", type=QuestionType.CODING, category="NLP",
-        question="请用 Python 实现一个简单的 BPE（Byte Pair Encoding）分词器，输入语料和词表大小，输出词表。",
+        question="请用 Python 实现一个简单的 BPE（Byte Pair Encoding）分词器，输入语料和词表大小，输出词表。函数签名：def bpe(corpus: str, vocab_size: int) -> list[str]，corpus 为空格分隔的单词。",
         tags=["python", "nlp", "算法"],
         expected_points=["词频统计", "合并规则", "迭代合并", "词表生成", "边界处理"],
         difficulty=4,
         follow_up_hints=["BPE 和 WordPiece 的区别是什么？"],
+        code={
+            "language": "python",
+            "function_signature": "def bpe(corpus: str, vocab_size: int) -> list[str]",
+            "test_cases": [
+                {"name": "初始词表", "input_code": "print(' '.join(sorted(bpe('ab', 2))))", "expected": "a b"},
+                {"name": "合并高频对", "input_code": "print(' '.join(sorted(bpe('ab ab', 3))))", "expected": "a ab b"},
+            ],
+        },
     ),
 
     # ── 项目深挖题 ───────────────────────────────────────

@@ -413,8 +413,8 @@ function questionCard(m) {
   card.appendChild(meta);
   card.appendChild(body);
 
-  // 编程题 → 附「写代码」按钮，点击打开代码编辑器
-  if (q.code) {
+  // 编程题 → 附「写代码」按钮，点击打开代码编辑器（无论有无判题元数据）
+  if (q.type === "coding") {
     const btn = document.createElement("button");
     btn.className = "btn-code";
     btn.textContent = "💻 写代码";
@@ -788,7 +788,9 @@ function openCodeModal(q) {
   const modeEl = $("#code-mode");
   modeEl.textContent = mode === "acm" ? "ACM 完整程序" : "核心代码";
   modeEl.className = "code-mode-badge " + (mode === "acm" ? "acm" : "core");
-  $("#code-signature").textContent = code.function_signature || "";
+  // 无判题元数据的题（如线程池）→ 提示提交后由面试官评估
+  $("#code-signature").textContent = code.function_signature
+    || "（本题暂无自动判题用例，提交后由面试官评估代码质量）";
   $("#code-editor").value = "";
   $("#code-editor").placeholder = mode === "acm"
     ? "编写完整程序：自行读取标准输入（stdin），结果输出到标准输出（stdout）…"
