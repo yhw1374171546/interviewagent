@@ -600,7 +600,7 @@ def _build_python_script(user_code: str, question: CodeQuestion) -> str:
         lines.append("    if _out == _expected:")
         lines.append(f"        print('__TEST_{i}_PASS__')")
         lines.append("    else:")
-        lines.append(f"        print('__TEST_{i}_FAIL__: 期望 ' + repr(_expected) + ' 实际 ' + repr(_out))")
+        lines.append(f"        print('__TEST_{i}_FAIL__: expected ' + repr(_expected) + ' actual ' + repr(_out))")
         lines.append("except Exception as e:")
         lines.append(f"    print(f'__TEST_{i}_FAIL__: {{type(e).__name__}}: {{e}}')")
 
@@ -636,7 +636,7 @@ def _build_cpp_script(user_code: str, question: CodeQuestion) -> str:
         lines.append("        if (_out == _expected) {")
         lines.append(f'            cout << "__TEST_{i}_PASS__" << endl;')
         lines.append("        } else {")
-        lines.append(f'            cout << "__TEST_{i}_FAIL__: 期望 " << _expected << " 实际 " << _out << endl;')
+        lines.append(f'            cout << "__TEST_{i}_FAIL__: expected " << _expected << " actual " << _out << endl;')
         lines.append("        }")
         lines.append("    }")
 
@@ -664,12 +664,12 @@ def _parse_test_output(stdout: str, stderr: str, question: CodeQuestion) -> Judg
                 break
             elif fail_marker in line:
                 failed += 1
-                # 解析「期望 X 实际 Y」格式，分别填入 expected / got
+                # 解析 "expected X actual Y" 格式，分别填入 expected / got
                 msg = line.split(f"__TEST_{i}_FAIL__: ", 1)[-1].strip()
                 expected, got = tc.expected, msg
-                if " 实际 " in msg:
-                    parts = msg.split(" 实际 ", 1)
-                    expected = parts[0].replace("期望 ", "")
+                if " actual " in msg:
+                    parts = msg.split(" actual ", 1)
+                    expected = parts[0].replace("expected ", "")
                     got = parts[1].strip()
                 details.append({
                     "name": tc.name,
