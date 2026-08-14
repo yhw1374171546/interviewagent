@@ -87,3 +87,17 @@ class TestSessionMetrics:
         restored = Interviewer.from_dict(iv.to_dict(), MockLLMClient())
         assert restored.state.metrics == iv.state.metrics
         assert restored.state.timings == iv.state.timings
+
+    def test_from_dict_accepts_llm_strong(self):
+        """回归: from_dict 必须接受 llm_strong 参数（web 断点恢复时传入强模型）"""
+        async def scenario():
+            iv = Interviewer(MockLLMClient(), total_questions=1)
+            await iv.run_full_interview("Python 后端工程师", answers=["FastAPI。"])
+            return iv
+
+        iv = run(scenario())
+        strong = MockLLMClient()
+        restored = Interviewer.from_dict(
+            iv.to_dict(), MockLLMClient(), memory=None, llm_strong=strong,
+        )
+        assert restored.llm_strong is strong

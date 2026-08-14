@@ -596,14 +596,16 @@ class Interviewer:
         data: dict,
         llm_client: LLMClient,
         memory: InterviewMemory | None = None,
+        llm_strong: LLMClient | None = None,
     ) -> Interviewer:
         """
         从状态快照重建 Interviewer（服务重启恢复）。
 
         Args:
             data: to_dict() 生成的快照
-            llm_client: LLM 客户端
+            llm_client: LLM 客户端（快模型，高频调用）
             memory: 跨会话记忆实例（不参与序列化，由调用方注入）
+            llm_strong: 强模型（最终报告），未传时回退 llm_client
 
         Returns:
             恢复到快照时刻的 Interviewer
@@ -613,6 +615,7 @@ class Interviewer:
             total_questions=data.get("total_questions", 8),
             max_follow_ups=data.get("max_follow_ups", 3),
             memory=memory,
+            llm_strong=llm_strong,
             defer_report=data.get("defer_report", False),
         )
 
