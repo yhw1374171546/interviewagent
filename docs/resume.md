@@ -45,9 +45,21 @@ Python 3.11+ · asyncio · FastAPI · 原生 JS · DeepSeek API · 规则引擎 
 
 **项目：基于语音信号与对抗学习的阿尔茨海默病早期检测系统**
 
-- **对抗性去混淆（核心创新）**：AD 语音含年龄/性别等混淆信息，直接建模会过度依赖非病理特征——设计多任务架构（AD 分类头 + 年龄/性别辅助头）+ **梯度反转层（GRL）** 迫使共享表征"去混淆"；骨干从 wav2vec2-base 升级到 **distil-whisper（637M/1280d）** 解决 GRL 维度瓶颈，配合 sigmoid 退火、动态 loss 归一化等训练技巧——Accuracy **0.635→0.803（+26.5%）**、AUC **0.667→0.865**。
-- **结果与发现**：ADReSSo 数据集（166 训练/71 测试，AD/CN 二分类）上 **Acc 0.803 / AUC 0.865**，优于纯分类基线（0.741/0.841）；发现**年龄是主导混淆因素**（GRL-age 0.803 vs GRL-gender 0.780）；ECAPA 小样本微调灾难性遗忘（0.463 < random）、WORLD F0 归一化无效——用可控实验修正研究假设。
-- **工程规范**：统一 10 轮（seed 0-9）独立评估（均值±标准差，Acc/F1/AUC/Precision/Recall/Specificity 六指标）、模块化代码（8 实验目录共享 evaluate.py）全可复现，完整交付 PROJECT_HANDOVER.md。
+- **任务**：AD 传统诊断依赖腰椎穿刺/PET，无法大规模筛查；语音采集低成本，但混杂说话人年龄/性别等混淆信息。在 **ADReSSo 数据集**（166 训练/71 测试，AD/CN 二分类，baseline 0.635）上构建语音病理检测管线。
+- **多路线基线探索**：冻结 x-vector（512d）/ECAPA-TDNN（192d）说话人嵌入 + MLP，验证语音特征携带病理信息；实现 resample-based **VTLN** 声道归一化（wav2vec2 自一致性估计 alpha）；ECAPA 骨干微调触发**灾难性遗忘**（20.77M 参数 vs 124 样本，Acc 0.463 < random）——为后续实验设计提供教训。
+- **核心创新：GRL 对抗性去混淆**：设计多任务架构（共享表征 → AD 分类头 + 年龄/性别辅助头），辅助分支前插**梯度反转层（GRL）**，迫使主干学习"无法区分年龄/性别、但能准确判断 AD"的表征；经 v3-v7 迭代，骨干从 wav2vec2-base（768d）升级到 **distil-whisper（1280d/637M）** 解决"维度不足导致 GRL 选择性遗忘破坏主任务"的瓶颈；实现 GRL sigmoid 退火、动态 loss 归一化、分层学习率、辅助任务 warmup 等训练技巧。
+- **信号级归一化（对照实验）**：搭建插件式 VC 框架（WORLD Vocoder F0 归一化 + FreeVC 全频谱转换）对语音去说话人化，同一 split/seed/骨干严格控制变量——验证 wav2vec2 预训练已学得说话人不变表征、**WORLD F0 归一化无效**，修正研究假设。
+- **结果**：GRL 首次在该任务上 work，Accuracy **0.635→0.803（+26.5%）**、AUC **0.667→0.865**；发现**年龄是主导混淆因素**（GRL-age 0.803 > GRL-gender 0.780 > 纯分类 0.741）。
+- **工程规范**：统一 10 轮（seed 0-9）独立评估协议（均值±标准差，Acc/F1/AUC/Precision/Recall/Specificity 六指标）；模块化代码（8 实验目录共享 common/evaluate.py）全可复现，完整交付 PROJECT_HANDOVER.md。
+
+**实验结果对比**：
+
+| 方法 | Accuracy | AUC |
+|------|:---:|:---:|
+| wav2vec2 baseline | 0.635 | 0.667 |
+| distil-whisper 纯分类 | 0.741 | 0.841 |
+| distil-whisper + GRL(性别) | 0.780 | 0.864 |
+| **distil-whisper + GRL(年龄)** | **0.803** | **0.865** |
 
 ## 高频追问预案（口头准备，不进简历）
 
