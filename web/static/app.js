@@ -461,11 +461,19 @@ const VERDICT = {
   CE: { icon: "🔧", label: "Compilation Error", cls: "ce" },
   RE: { icon: "💥", label: "Runtime Error", cls: "re" },
   SE: { icon: "🛡", label: "Security Error", cls: "re" },
+  REVIEW: { icon: "🤖", label: "AI Code Review", cls: "review" },
 };
 
 function codeJudgeCard(j) {
   const v = VERDICT[j.verdict] || (j.passed ? VERDICT.AC : VERDICT.WA);
   const timeText = j.execution_time_ms ? ` · ${j.execution_time_ms} ms` : "";
+  // AI 代码评审（无自动判题用例的题）→ 直接展示评语，不套用例列表
+  if (j.verdict === "REVIEW") {
+    return `
+      <div class="judge-verdict ${v.cls}">${v.icon} ${v.label}</div>
+      <div class="judge-meta">本题无自动判题用例，由 AI 评审代码质量</div>
+      ${j.comment ? `<div class="eval-comment">💬 ${j.comment}</div>` : ""}`;
+  }
   const rows = (j.details || []).map((d) => {
     const icon = d.passed ? "✅" : "❌";
     const extra = d.passed
@@ -819,7 +827,11 @@ function openCodeModal(q) {
   modeEl.className = "code-mode-badge " + (mode === "acm" ? "acm" : "core");
   // 无判题元数据的题（如线程池）→ 提示提交后由面试官评估
   $("#code-signature").textContent = code.function_signature
-    || "（本题暂无自动判题用例，提交后由面试官评估代码质量）";
+    || "（本题暂无自动判题用例，提交后由 AI 代码评审评估质量）";
+  // 无自动判题用例 → 禁用「运行」按钮（自测需要用例；代码质量由 AI 评审）
+  const hasCases = (code.test_cases || []).length > 0;
+  $("#code-run").disabled = !hasCases;
+  $("#code-run").title = hasCases ? "" : "本题无自动判题用例，无法自测；提交后由 AI 代码评审";
   renderCodeCases(code.test_cases, mode);
   $("#code-run-result").hidden = true;
   $("#code-run-result").innerHTML = "";

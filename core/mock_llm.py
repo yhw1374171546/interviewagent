@@ -53,6 +53,8 @@ class MockLLMClient(LLMClient):
 
         if "开场白" in prompt:
             content = self._warmup()
+        elif "代码评审" in prompt and "提交的代码" in prompt:
+            content = self._code_review(prompt)
         elif "follow_up_decision" in prompt:
             content = self._evaluation(prompt)
         elif "自主判断" in prompt and "追问" in prompt:
@@ -92,6 +94,54 @@ class MockLLMClient(LLMClient):
             "responsibilities": ["负责核心业务系统的开发与维护"],
             "interview_focus": ["核心技术栈", "项目经验", "问题解决能力"],
             "missing_skills": [],
+        }, ensure_ascii=False)
+
+    def _code_review(self, prompt: str) -> str:
+        """
+        代码评审（无自动判题用例的题）— 确定性规则响应。
+
+        提取面试者提交的代码，按「是否完整实现 + 是否处理边界」给分，
+        不真正理解代码（Mock 的定位是确定性，不是智能）。
+        """
+        m = re.search(r"## 面试者提交的代码\s*\n```python\n(.+?)\n```", prompt, re.S)
+        code = m.group(1).strip() if m else ""
+        lines = [ln for ln in code.split("\n") if ln.strip()]
+        n = len(lines)
+
+        if n == 0:
+            correctness = 2
+            comment = "未提交任何代码。"
+            strengths, weaknesses = [], ["未提交代码"]
+            decision, fq = "deepen", "请先写出你的解题代码，再说明设计思路。"
+        elif n < 3:
+            correctness = 4
+            comment = "代码过于简略，缺少完整实现。"
+            strengths, weaknesses = [], ["实现不完整"]
+            decision, fq = "deepen", "代码似乎不完整，能补全实现并说明思路吗？"
+        else:
+            has_def = bool(re.search(r"\bdef\s+\w+|class\s+\w+", code))
+            has_return = "return" in code
+            if has_def and has_return:
+                correctness = 8
+                comment = "代码结构完整，包含函数/类定义与返回值，Mock 评审判定思路基本正确。"
+                strengths = ["结构完整", "包含返回值"]
+                weaknesses = []
+                decision, fq = "move_on", ""
+            else:
+                correctness = 5
+                comment = "代码包含实现但缺少明确的函数定义或返回值，Mock 评审无法确认正确性。"
+                strengths = []
+                weaknesses = ["缺少明确函数定义/返回值"]
+                decision, fq = "deepen", "能说明代码的核心逻辑，并补上完整的函数签名吗？"
+
+        return json.dumps({
+            "correctness": correctness,
+            "overall_comment": comment,
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "follow_up_decision": decision,
+            "follow_up_question": fq,
+            "follow_up_reason": "Mock 代码评审",
         }, ensure_ascii=False)
 
     def _evaluation(self, prompt: str) -> str:

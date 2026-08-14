@@ -731,6 +731,23 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 **经验**: ① 判题不只是「跑起来」，输入要能构造对象、输出要能序列化比较，缺一环就只能靠 LLM 猜；② 生成器按「参数类型 × 返回类型」双维分派，比按题目人工分类可扩展（新增数据源题也能自动生成）；③ 白名单缺节点会让「合法解法被误杀」，用参考实现跑一遍全量用例是发现这类隐性 bug 的最快路径。
 
+### 2026-08-14 18:40 | 无自动判题用例的代码题降级为 LLM 代码评审（修 0/0 AC 假阳性）
+
+**背景**: 阶段二十六把链表/树题补上用例后，还剩 31 道无 test_cases 的 coding 题（类设计题 MinStack/BSTIterator、SQL/Shell 无 Python 模板题、特殊 API 题等）。用户问「不能自动判题该怎么判」——排查发现**假阳性 bug**: `run_judge` 在 test_cases 为空时 `passed(0) == len(0)` 判定全部通过 → **verdict AC**，用户提交任何代码都得满分。
+
+**修复**:
+1. **`code_judge.py` 守卫** — `run_judge` 无 test_cases 直接返回 SE「无测试用例」，从根上杜绝 0/0 判 AC。
+2. **`evaluator.py` 降级链** — `_evaluate_code` 检测到 test_cases 为空 → 走新增 `_evaluate_code_review`：LLM 按 `CODE_REVIEW_PROMPT` 评审代码正确性/复杂度/质量（返回 correctness 1-10 + 评语 + strengths/weaknesses + 追问决策）；LLM 不可用给中性 5 分并明确说明「语义评估不可用」，不伪造通过。结果透出 `code_judge.verdict="REVIEW"`。
+3. **`mock_llm.py` 路由** — 新增 `_code_review` 确定性响应（按「是否完整实现 + 是否含函数定义/返回值」给 2/4/5/8 分），Mock 模式全链路可跑。
+4. **Web 适配** — `/api/code/run` 无 test_cases 返回 400 提示「无法自测，由 AI 代码评审」；前端无用例时禁用「运行」按钮 + `VERDICT.REVIEW` 卡片（🤖 AI Code Review + 评语）+ 蓝色样式。
+5. **测试 +6**（255 → 261）：0/0 守卫 SE 回归、REVIEW 裁决透出、好代码高分/坏代码低分、无 LLM 中性降级、LLM 输出不可解析降级。
+
+**为什么这么做**: 判题的底线是「不给错误答案发奖」。0/0 判 AC 等于告诉面试者「代码随便写都满分」——比不判更伤。无法自动判的题要**诚实降级**（LLM 评审 + 明示无用例），而不是用假阳性掩盖。
+
+**实测**: 261 测试全绿；ruff 零错误；node --check 通过；benchmark 无回归；verify_lc_judge 69 道用例题不受影响。
+
+**经验**: ① 判题框架的「空用例 = 全通过」是经典假阳性——任何 total_tests 可能为 0 的判定都要显式守卫；② 降级不是降质量，是「有证据用证据、没证据诚实说没有」——LLM 评审明示「无自动判题用例」比伪造 AC 可信得多；③ 判题能力分三档: 自动用例（事实）→ LLM 评审（语义）→ 中性分（不可用），逐级降级且全程留痕。
+
 ---
 
 ## 技术决策速查表

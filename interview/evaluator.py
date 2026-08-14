@@ -165,6 +165,40 @@ LLM_DEEP_EVAL_PROMPT = """你是一位资深面试官。请分析面试者对以
 ```"""
 
 
+# LLM 代码评审 prompt — 无自动判题用例的代码题（类设计/SQL/Shell 等）降级路径
+CODE_REVIEW_PROMPT = """你是一位资深算法面试官。这是一次**代码评审**，请评审面试者提交的代码质量。
+这道题没有自动判题用例，需要你基于代码本身判断正确性。
+
+## 题目
+{question}
+
+## 面试者提交的代码
+```python
+{answer}
+```
+
+## 评审要求
+
+1. **正确性**（最重要）: 算法/逻辑是否正确地解决了题目？有没有明显 bug、边界遗漏、死循环？
+2. **复杂度**: 时间/空间复杂度是否合理？
+3. **代码质量**: 可读性、命名、是否硬编码、是否处理了空输入等边界情况？
+
+## 输出格式
+```json
+{{
+  "correctness": "数字 1-10",
+  "overall_comment": "一句话评价（代码对不对、好在哪、哪里要改）",
+  "strengths": ["亮点"],
+  "weaknesses": ["不足"],
+  "follow_up_decision": "move_on|deepen",
+  "follow_up_question": "追问内容(move_on 时为空)",
+  "follow_up_reason": "追问原因"
+}}
+```
+
+评分参考: 10=完全正确且优雅；8-9=思路正确小瑕疵；6-7=思路基本对但有问题；4-5=方向对但实现有明显缺陷；1-3=严重错误或几乎没写。"""
+
+
 class AnswerEvaluator:
     """
     答案评估器 — 双引擎模式。
@@ -365,10 +399,17 @@ class AnswerEvaluator:
 
         代码题不适用自然语言的「关键词/复读」检测，直接交给 code_judge：
         通过率决定正确性，编译/安全/超时给最低分并提示。
+
+        无自动判题用例的代码题（类设计题/SQL/Shell 等）→ 降级为 LLM 代码评审，
+        不伪造 0/0 AC 假阳性。
         """
         from .code_judge import CodeQuestion, TestCase, run_judge
 
         code_meta = question.code or {}
+        test_case_dicts = code_meta.get("test_cases", [])
+        if not test_case_dicts:
+            return await self._evaluate_code_review(question, answer)
+
         language = code_meta.get("language", "python")
         code_question = CodeQuestion(
             id=question.id,
@@ -377,7 +418,7 @@ class AnswerEvaluator:
             function_signature=code_meta.get("function_signature", ""),
             example_input="",
             example_output="",
-            test_cases=[TestCase(**tc) for tc in code_meta.get("test_cases", [])],
+            test_cases=[TestCase(**tc) for tc in test_case_dicts],
         )
 
         try:
@@ -453,6 +494,115 @@ class AnswerEvaluator:
         )
 
     # ── 边界检测辅助 ────────────────────────────────────
+
+    async def _evaluate_code_review(
+        self,
+        question: InterviewQuestion,
+        answer: str,
+    ) -> EvaluationResult:
+        """
+        无自动判题用例的代码题 → LLM 代码评审。
+
+        覆盖: 类设计题（MinStack/BSTIterator）、SQL/Shell 无 Python 模板题、
+        特殊输入输出题（二叉树序列化、isBadVersion 等）。这些题没法自动生成
+        测试用例，但也不能 0/0 判 AC（假阳性）——交给 LLM 评审代码质量，
+        LLM 不可用时给中性分并明确说明，不伪造通过。
+        """
+        if not self.llm:
+            return EvaluationResult(
+                correctness=5, depth=5, structure=5, relevance=5,
+                overall_comment="本题无自动判题用例，且语义评估不可用，按中性分处理",
+                strengths=[],
+                weaknesses=["无自动判题用例", "语义评估不可用"],
+                follow_up_decision=FollowUpDecision.DEEPEN,
+                follow_up_question="能展开讲讲你的代码设计思路和复杂度分析吗？",
+                follow_up_reason="无自动判题用例",
+                keyword_match_rate=0.0,
+                matched_points=[],
+                missed_points=[],
+                code_judge={
+                    "language": "python",
+                    "passed": False,
+                    "verdict": "REVIEW",
+                    "total_tests": 0,
+                    "passed_tests": 0,
+                    "failed_tests": 0,
+                    "errors": 0,
+                    "execution_time_ms": 0,
+                    "details": [],
+                    "review": True,
+                    "comment": "本题无自动判题用例，且语义评估不可用，按中性分处理",
+                },
+            )
+
+        prompt = CODE_REVIEW_PROMPT.format(
+            question=question.question,
+            answer=answer[:2500],
+        )
+        try:
+            response = await self.llm.chat_with_retry(
+                messages=[Message(role=Role.USER, content=prompt)],
+                temperature=0.3,
+                max_tokens=1200,
+            )
+            data = self._parse_json(response.content)
+            if not data:
+                repaired = repair_truncated_json(response.content)
+                if repaired is not None:
+                    data = repaired
+            if not data:
+                logger.warning(f"LLM 代码评审输出不可解析，已降级: {response.content[:200]!r}")
+                data = {}
+        except Exception as e:
+            logger.warning(f"LLM 代码评审失败（降级到中性分）: {type(e).__name__}: {e}")
+            data = {}
+
+        # 正确性解析（非法值回退中性 5 分）
+        try:
+            correctness = int(float(str(data.get("correctness", 5))))
+        except (TypeError, ValueError):
+            correctness = 5
+        correctness = self._clamp(correctness, 1, 10)
+
+        decision = _safe_decision(data.get("follow_up_decision"))
+        follow_up_question = (data.get("follow_up_question") or "").strip()
+        if decision != FollowUpDecision.MOVE_ON and not follow_up_question:
+            follow_up_question = "能展开讲讲你的代码设计思路和复杂度分析吗？"
+
+        comment = data.get("overall_comment") or "（代码评审未返回评价，按中性分处理）"
+        strengths = data.get("strengths") or []
+        weaknesses = data.get("weaknesses") or []
+        if not weaknesses and decision != FollowUpDecision.MOVE_ON:
+            weaknesses = ["代码有待改进"]
+
+        return EvaluationResult(
+            correctness=correctness,
+            depth=correctness,
+            structure=correctness,
+            relevance=correctness,
+            overall_comment=f"💻 AI 代码评审（无自动判题用例）: {comment}",
+            strengths=strengths,
+            weaknesses=weaknesses,
+            follow_up_decision=decision,
+            follow_up_question=follow_up_question,
+            follow_up_reason=data.get("follow_up_reason") or "AI 代码评审",
+            keyword_match_rate=0.0,
+            matched_points=[],
+            missed_points=[],
+            code_judge={
+                "language": "python",
+                "passed": correctness >= 7,
+                "verdict": "REVIEW",
+                "total_tests": 0,
+                "passed_tests": 0,
+                "failed_tests": 0,
+                "errors": 0,
+                "execution_time_ms": 0,
+                "details": [],
+                "review": True,
+                "comment": comment,
+            },
+        )
 
     @staticmethod
     def _is_question_restate(question: str, answer: str) -> bool:

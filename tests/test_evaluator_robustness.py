@@ -44,6 +44,30 @@ NO_POINTS_QUESTION = InterviewQuestion(
     difficulty=3,
 )
 
+# 无自动判题用例的代码题（类设计/SQL/Shell 等）→ 走 LLM 代码评审
+NO_CASES_CODE_QUESTION = InterviewQuestion(
+    id="LC155T",
+    type=QuestionType.CODING,
+    category="Stack",
+    question="设计一个支持 push/pop/top/getMin 的栈。",
+    expected_points=[],
+    code={"language": "python", "mode": "core",
+          "function_signature": "class MinStack:", "test_cases": []},
+)
+
+FULL_MIN_STACK = """class MinStack:
+    def __init__(self):
+        self.s = []
+    def push(self, x):
+        self.s.append(x)
+    def pop(self):
+        self.s.pop()
+    def top(self):
+        return self.s[-1]
+    def getMin(self):
+        return min(self.s)
+"""
+
 
 def run(coro):
     """pytest 无 pytest-asyncio 环境下的 asyncio 运行器"""
@@ -301,3 +325,46 @@ class TestCodeJudgeInEvaluator:
             GO_GC_QUESTION, "三色标记 写屏障 混合写屏障 GC触发条件 GC调优" * 2,
         ))
         assert ev.code_judge is None
+
+
+class TestCodeReviewFallback:
+    """无 test_cases 的代码题 → LLM 代码评审（不伪造 0/0 AC）"""
+
+    def test_no_cases_uses_review_verdict(self):
+        ev = run(AnswerEvaluator(MockLLMClient()).evaluate(NO_CASES_CODE_QUESTION, FULL_MIN_STACK))
+        assert ev.code_judge is not None
+        assert ev.code_judge["verdict"] == "REVIEW"
+        assert ev.code_judge["total_tests"] == 0
+        assert "代码评审" in ev.overall_comment
+
+    def test_review_good_code_gets_high_score(self):
+        ev = run(AnswerEvaluator(MockLLMClient()).evaluate(NO_CASES_CODE_QUESTION, FULL_MIN_STACK))
+        assert ev.correctness >= 7
+
+    def test_review_bad_code_gets_low_score(self):
+        ev = run(AnswerEvaluator(MockLLMClient()).evaluate(NO_CASES_CODE_QUESTION, "pass"))
+        assert ev.correctness <= 5
+        assert ev.follow_up_decision == FollowUpDecision.DEEPEN
+
+    def test_review_no_llm_neutral_score(self):
+        ev = run(AnswerEvaluator(None).evaluate(NO_CASES_CODE_QUESTION, FULL_MIN_STACK))
+        assert ev.correctness == 5
+        assert ev.code_judge["verdict"] == "REVIEW"
+        assert "语义评估不可用" in ev.overall_comment or "按中性分" in ev.overall_comment
+
+    def test_review_llm_garbage_output_falls_back_neutral(self):
+        """LLM 返回不可解析内容 → 中性分 + 留痕，不崩溃、不伪造通过"""
+
+        class GarbageLLM(LLMClient):
+            def __init__(self):
+                super().__init__("garbage", api_key=None, base_url=None)
+
+            async def chat(self, messages, tools=None, temperature=0.7,
+                           max_tokens=4096, stream=False):
+                return LLMResponse(content="不，我不是 JSON，我是随便一段话",
+                                   finish_reason="stop", usage={})
+
+        ev = run(AnswerEvaluator(GarbageLLM()).evaluate(NO_CASES_CODE_QUESTION, FULL_MIN_STACK))
+        assert ev.correctness == 5
+        assert ev.code_judge["verdict"] == "REVIEW"
+        assert "中性分" in ev.overall_comment

@@ -153,6 +153,17 @@ class TestRunJudge:
         assert result.passed is False
         assert result.details[0]["name"] == "超时"
 
+    def test_no_test_cases_returns_se_not_ac(self):
+        """回归: 无 test_cases 时必须 SE，禁止 0/0 判 AC 假阳性"""
+        q = CodeQuestion(
+            id="NOCASE", title="", description="", function_signature="class MinStack:",
+            example_input="", example_output="", test_cases=[],
+        )
+        result = run(run_judge("print(1)", q))
+        assert result.passed is False
+        assert result.verdict == "SE"
+        assert result.details[0]["name"] == "无测试用例"
+
     def test_format_report_contains_verdict(self):
         result = run(run_judge(CORRECT_LRU, COD_LRU))
         report = format_judge_report(result)

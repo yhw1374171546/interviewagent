@@ -441,7 +441,21 @@ async def run_judge(
     """
     timeout = timeout_sec or question.time_limit_sec
 
-    # 0. 语言支持检查
+    # 0. 无测试用例 → 不执行（0/0 判 AC 是假阳性，必须由调用方降级处理）
+    if not question.test_cases:
+        return JudgeResult(
+            passed=False,
+            total_tests=0,
+            errors=1,
+            details=[{
+                "name": "无测试用例",
+                "passed": False,
+                "error": "该题没有自动判题用例，无法沙箱判题（应走 LLM 代码评审）",
+            }],
+            verdict="SE",
+        )
+
+    # 1. 语言支持检查
     if language not in LANGUAGES:
         return JudgeResult(
             passed=False,

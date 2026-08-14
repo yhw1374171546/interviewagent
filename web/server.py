@@ -460,6 +460,13 @@ async def run_code(payload: dict):
     if not code:
         raise HTTPException(400, "代码不能为空")
 
+    if not test_cases:
+        raise HTTPException(
+            400,
+            "本题暂无自动判题用例（如类设计/SQL/Shell 题），无法自测——"
+            "请在面试中提交代码，由 AI 代码评审评估质量",
+        )
+
     question = CodeQuestion(
         id="run", title="", description="", function_signature="",
         example_input="", example_output="",
