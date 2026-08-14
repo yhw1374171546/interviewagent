@@ -442,6 +442,7 @@ class AnswerEvaluator:
             code_judge={
                 "language": language,
                 "passed": judge.passed,
+                "verdict": judge.verdict,
                 "total_tests": judge.total_tests,
                 "passed_tests": judge.passed_tests,
                 "failed_tests": judge.failed_tests,

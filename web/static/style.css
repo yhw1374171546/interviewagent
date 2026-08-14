@@ -726,4 +726,7 @@ body {
 .judge-verdict { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
 .judge-verdict.ac { color: #16a34a; }
 .judge-verdict.wa { color: #dc2626; }
+.judge-verdict.tle { color: #d97706; }
+.judge-verdict.ce { color: #dc2626; }
+.judge-verdict.re { color: #dc2626; }
 .judge-meta { font-size: 12.5px; color: #6b7280; margin-bottom: 8px; }

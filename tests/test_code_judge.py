@@ -218,3 +218,40 @@ class TestAcmMode:
         result = run(run_judge("while True:\n    pass", ACM_ADD, language="python", mode="acm", timeout_sec=0.2))
         assert result.passed is False
         assert result.details[0]["error"] == "超时"
+
+
+# ── 判题结论（verdict）分类 ────────────────────────────────────
+
+_PY_Q = CodeQuestion(
+    id="P", title="", description="", function_signature="def bpe(c,v)",
+    example_input="", example_output="",
+    test_cases=[CodeTestCase(name="t1", input_code="print(' '.join(sorted(bpe('ab', 2))))", expected="a b")],
+)
+
+
+class TestVerdict:
+
+    def test_ac_verdict(self):
+        r = run(run_judge("def bpe(c, v):\n    return list(set(c))\n", _PY_Q))
+        assert r.verdict == "AC"
+
+    def test_wa_verdict(self):
+        r = run(run_judge("def bpe(c, v):\n    return ['x']\n", _PY_Q))
+        assert r.verdict == "WA"
+
+    def test_re_verdict(self):
+        r = run(run_judge("def wrong_name(c, v):\n    return []\n", _PY_Q))
+        assert r.verdict == "RE"
+        assert "NameError" in r.details[0]["error"]
+
+    def test_tle_verdict(self):
+        r = run(run_judge("def bpe(c, v):\n    while True:\n        pass\n", _PY_Q, timeout_sec=0.2))
+        assert r.verdict == "TLE"
+
+    def test_ce_verdict(self):
+        cpp_q = CodeQuestion(id="C", title="", description="", function_signature="vector<int> f()",
+                             example_input="", example_output="",
+                             test_cases=[CodeTestCase(name="t1", input_code="cout << 1;", expected="1")])
+        r = run(run_judge("vector<int> f() { return {1, ; }", cpp_q, language="cpp"))
+        assert r.verdict == "CE"
+        assert "error" in r.details[0]["error"]  # 编译器错误信息含行号

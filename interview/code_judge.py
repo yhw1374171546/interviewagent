@@ -323,6 +323,8 @@ class JudgeResult:
     stdout: str = ""
     stderr: str = ""
     execution_time_ms: int = 0
+    # 判题结论（LeetCode 风格）: AC / WA / TLE / CE / RE / SE
+    verdict: str = ""
 
 
 async def run_judge(
@@ -366,6 +368,7 @@ async def run_judge(
             total_tests=len(question.test_cases),
             errors=1,
             details=[{"name": "不支持的语言", "passed": False, "error": f"不支持: {language}"}],
+            verdict="SE",
         )
 
     # 0.5 ACM 完整程序模式 → 独立执行路径
@@ -380,6 +383,7 @@ async def run_judge(
             total_tests=len(question.test_cases),
             errors=1,
             details=[{"name": "安全检查", "passed": False, "error": err_msg}],
+            verdict="SE",
         )
 
     # 2. 构建完整测试脚本
@@ -413,6 +417,7 @@ async def run_judge(
                     errors=1,
                     details=[{"name": "编译错误", "passed": False, "error": err_text[:300]}],
                     stderr=err_text[:500],
+                    verdict="CE",
                 )
 
         # 5. subprocess 隔离执行
@@ -436,6 +441,7 @@ async def run_judge(
                 total_tests=len(question.test_cases),
                 errors=1,
                 details=[{"name": "超时", "passed": False, "error": f"代码执行超过 {timeout} 秒"}],
+                verdict="TLE",
             )
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
@@ -477,6 +483,7 @@ async def _run_acm(
             total_tests=len(question.test_cases),
             errors=1,
             details=[{"name": "安全检查", "passed": False, "error": err_msg}],
+            verdict="SE",
         )
 
     ext = LANGUAGES[language]["ext"]
@@ -506,6 +513,7 @@ async def _run_acm(
                     errors=1,
                     details=[{"name": "编译错误", "passed": False, "error": err_text[:300]}],
                     stderr=err_text[:500],
+                    verdict="CE",
                 )
 
         run_cmd = _runner_command(language, src_path, exe_path or "")
@@ -523,7 +531,7 @@ async def _run_acm(
             )
             t0 = time.perf_counter()
             try:
-                stdout_bytes, _ = await asyncio.wait_for(
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
                     proc.communicate(input=tc.input_code.encode("utf-8")),
                     timeout=timeout,
                 )
@@ -536,9 +544,14 @@ async def _run_acm(
             total_elapsed_ms += int((time.perf_counter() - t0) * 1000)
 
             out = stdout_bytes.decode("utf-8", errors="replace").strip()
+            err = stderr_bytes.decode("utf-8", errors="replace").strip()
             if out == tc.expected:
                 passed += 1
                 details.append({"name": tc.name, "passed": True})
+            elif err:
+                # RE：程序运行时错误（stderr 有 traceback）
+                failed += 1
+                details.append({"name": tc.name, "passed": False, "error": err[:200]})
             else:
                 failed += 1
                 details.append({
@@ -548,14 +561,25 @@ async def _run_acm(
                     "got": out,
                 })
 
+        is_all_pass = passed == len(question.test_cases) and failed == 0
+        if is_all_pass:
+            verdict = "AC"
+        elif any(d.get("error") == "超时" for d in details):
+            verdict = "TLE"
+        elif any("error" in d and "expected" not in d for d in details):
+            verdict = "RE"
+        else:
+            verdict = "WA"
+
         return JudgeResult(
-            passed=(passed == len(question.test_cases) and failed == 0),
+            passed=is_all_pass,
             total_tests=len(question.test_cases),
             passed_tests=passed,
             failed_tests=failed,
             errors=0,
             details=details,
             execution_time_ms=total_elapsed_ms,
+            verdict=verdict,
         )
 
     finally:
@@ -675,17 +699,24 @@ def _parse_test_output(stdout: str, stderr: str, question: CodeQuestion) -> Judg
                 failed += 1
                 # 解析 "expected X actual Y" 格式，分别填入 expected / got
                 msg = line.split(f"__TEST_{i}_FAIL__: ", 1)[-1].strip()
-                expected, got = tc.expected, msg
                 if " actual " in msg:
+                    # WA：输出不匹配
                     parts = msg.split(" actual ", 1)
                     expected = parts[0].replace("expected ", "")
                     got = parts[1].strip()
-                details.append({
-                    "name": tc.name,
-                    "passed": False,
-                    "expected": expected,
-                    "got": got,
-                })
+                    details.append({
+                        "name": tc.name,
+                        "passed": False,
+                        "expected": expected,
+                        "got": got,
+                    })
+                else:
+                    # RE：运行时错误（异常信息，如 NameError/TypeError）
+                    details.append({
+                        "name": tc.name,
+                        "passed": False,
+                        "error": msg,
+                    })
                 break
 
     # 特殊处理：如果找不到标记（脚本执行失败），检查 stderr
@@ -703,8 +734,17 @@ def _parse_test_output(stdout: str, stderr: str, question: CodeQuestion) -> Judg
             } for tc in question.test_cases]
             failed = len(question.test_cases)
 
+    # 判题结论：AC / RE / WA
+    is_all_pass = passed == len(question.test_cases) and errors == 0 and failed == 0
+    if is_all_pass:
+        verdict = "AC"
+    elif any("error" in d and "expected" not in d for d in details):
+        verdict = "RE"
+    else:
+        verdict = "WA"
+
     return JudgeResult(
-        passed=(passed == len(question.test_cases) and errors == 0 and failed == 0),
+        passed=is_all_pass,
         total_tests=len(question.test_cases),
         passed_tests=passed,
         failed_tests=failed,
@@ -712,6 +752,7 @@ def _parse_test_output(stdout: str, stderr: str, question: CodeQuestion) -> Judg
         details=details,
         stdout=stdout,
         stderr=stderr,
+        verdict=verdict,
     )
 
 

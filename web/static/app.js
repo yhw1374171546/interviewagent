@@ -453,9 +453,18 @@ function evalCard(ev) {
   return card;
 }
 
-// LeetCode 式判题结果卡片：AC/WA + 通过用例数 + 耗时 + 逐用例
+// LeetCode 式判题结果卡片：AC/WA/TLE/CE/RE/SE + 通过用例数 + 耗时 + 逐用例
+const VERDICT = {
+  AC: { icon: "✅", label: "Accepted", cls: "ac" },
+  WA: { icon: "❌", label: "Wrong Answer", cls: "wa" },
+  TLE: { icon: "⏱", label: "Time Limit Exceeded", cls: "tle" },
+  CE: { icon: "🔧", label: "Compilation Error", cls: "ce" },
+  RE: { icon: "💥", label: "Runtime Error", cls: "re" },
+  SE: { icon: "🛡", label: "Security Error", cls: "re" },
+};
+
 function codeJudgeCard(j) {
-  const isAC = j.passed;
+  const v = VERDICT[j.verdict] || (j.passed ? VERDICT.AC : VERDICT.WA);
   const timeText = j.execution_time_ms ? ` · ${j.execution_time_ms} ms` : "";
   const rows = (j.details || []).map((d) => {
     const icon = d.passed ? "✅" : "❌";
@@ -466,9 +475,13 @@ function codeJudgeCard(j) {
         : ` — expected ${d.expected ?? ""}, actual ${d.got ?? ""}`;
     return `<div class="judge-case ${d.passed ? "pass" : "fail"}">${icon} ${d.name}${extra}</div>`;
   }).join("");
+  // CE/TLE/RE/SE 不显示"用例通过"（编译/超时/崩溃时用例数无意义），直接看错误详情
+  const meta = ["CE", "TLE", "RE", "SE"].includes(j.verdict)
+    ? ""
+    : `${j.passed_tests}/${j.total_tests} 用例通过${timeText}`;
   return `
-    <div class="judge-verdict ${isAC ? "ac" : "wa"}">${isAC ? "✅ Accepted" : "❌ Wrong Answer"}</div>
-    <div class="judge-meta">${j.passed_tests}/${j.total_tests} 用例通过${timeText}</div>
+    <div class="judge-verdict ${v.cls}">${v.icon} ${v.label}</div>
+    ${meta ? `<div class="judge-meta">${meta}</div>` : ""}
     <div class="judge-box">${rows}</div>`;
 }
 
