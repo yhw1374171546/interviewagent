@@ -55,6 +55,9 @@ class InterviewReport:
     # 逐题详情
     details: list[dict] = field(default_factory=list)
 
+    # 参考答案（逐题 {question, answer}，LLM 生成；Mock/降级时为空，前端回退到 details 的 expected_points）
+    reference_answers: list[dict] = field(default_factory=list)
+
 
 FINAL_REPORT_PROMPT = """你是一位资深面试官，请根据以下面试记录，生成一份专业的面试评估报告。
 
@@ -75,6 +78,7 @@ FINAL_REPORT_PROMPT = """你是一位资深面试官，请根据以下面试记�
 5. **improvement_advice**: 具体的改进建议（200 字左右）
 6. **verdict**: 面试结论（推荐通过 / 建议待定 / 不推荐通过）
 7. **verdict_reason**: 结论理由（100 字左右）
+8. **reference_answers**: 每道题的参考答案（每题 1-2 句，覆盖该题关键知识点，供面试者复盘）
 
 ## 输出格式
 ```json
@@ -85,7 +89,11 @@ FINAL_REPORT_PROMPT = """你是一位资深面试官，请根据以下面试记�
   "main_weaknesses": ["不足1", "不足2", "不足3"],
   "improvement_advice": "具体的改进建议...",
   "verdict": "推荐通过",
-  "verdict_reason": "结论理由..."
+  "verdict_reason": "结论理由...",
+  "reference_answers": [
+    {{"question": "第1题题目", "answer": "参考答案..."}},
+    {{"question": "第2题题目", "answer": "参考答案..."}}
+  ]
 }}
 ```"""
 
@@ -163,6 +171,10 @@ class ReportGenerator:
         report.improvement_advice = llm_report.get("improvement_advice", "建议多参与实际项目，加深技术理解深度。")
         report.verdict = llm_report.get("verdict", "建议待定")
         report.verdict_reason = llm_report.get("verdict_reason", "综合表现尚可，建议进一步考察。")
+        report.reference_answers = llm_report.get("reference_answers", [])
+        # LLM 未返回参考答案（Mock/降级）→ 用题库期望要点兜底，保证总有"该怎么答"的提示
+        if not report.reference_answers:
+            report.reference_answers = self._build_fallback_reference(answers)
 
         return report
 
@@ -224,6 +236,9 @@ class ReportGenerator:
             # 流式失败 → 降级到默认建议（结构化报告不受影响）
             if not report.improvement_advice:
                 report.improvement_advice = "建议针对薄弱知识点做专题复习，多积累实际项目中的问题解决经验。"
+
+        # 参考答案：流式路径不调报告 JSON LLM，用题库期望要点兜底
+        report.reference_answers = self._build_fallback_reference(answers)
 
         yield {"type": "done", "report": report}
 
@@ -365,6 +380,25 @@ class ReportGenerator:
                 "score": ev.total_score if ev else 0,
                 "level": ev.level if ev else "未评分",
                 "comment": ev.overall_comment if ev else "",
+                # 答题要点（题库期望要点，确定性、零成本——参考答案的骨架）
+                "expected_points": q.expected_points if isinstance(q, InterviewQuestion) else [],
             }
             details.append(detail)
         return details
+
+    def _build_fallback_reference(self, answers: list[dict]) -> list[dict]:
+        """
+        参考答案兜底：无 LLM（Mock/降级）时，用题库期望要点拼成简要答案。
+        保证"面试结束后总能看到该怎么答"，而不是只有一句"你漏了 X"。
+        """
+        refs = []
+        for a in answers:
+            q = a.get("question")
+            points = q.expected_points if isinstance(q, InterviewQuestion) else []
+            if not points:
+                continue
+            refs.append({
+                "question": q.question if isinstance(q, InterviewQuestion) else str(q),
+                "answer": "答题要点：" + "、".join(points) + "。",
+            })
+        return refs

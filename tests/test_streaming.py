@@ -183,6 +183,23 @@ class TestGenerateStream:
         top = ReportGenerator._aggregate_evals(answers, "strengths", ["默认"])
         assert top[0] == "基础扎实"  # 出现 2 次，最频繁
 
+    def test_reference_answers_fallback(self):
+        """无 LLM 参考答案时 → 用题库期望要点兜底，保证报告总有参考答案"""
+        gen = ReportGenerator(FakeStreamLLM(chunks=["建议"]))
+
+        async def scenario():
+            events = []
+            async for e in gen.generate_stream(JDAnalysis(position="后端"), _make_answers()):
+                events.append(e)
+            return events
+
+        events = run(scenario())
+        final = events[-1]["report"]
+        assert final.reference_answers  # 兜底生成了参考答案
+        assert "GIL定义" in final.reference_answers[0]["answer"]
+        # 逐题详情也带上答题要点
+        assert "GIL定义" in final.details[0]["expected_points"]
+
 
 # ── 延迟报告集成（defer_report + stream_report） ─────────────────
 

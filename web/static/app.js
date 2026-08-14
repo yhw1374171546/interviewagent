@@ -505,6 +505,15 @@ function reportCard(r) {
       <div class="report-section">
         <h4>💡 改进建议</h4>
         <div class="report-advice">${r.improvement_advice}</div>
+      </div>` : ""}
+    ${(r.reference_answers || []).length ? `
+      <div class="report-section">
+        <h4>📖 参考答案</h4>
+        ${r.reference_answers.map((ra) => `
+          <div class="ref-answer">
+            <div class="ref-q">${esc(ra.question || "")}</div>
+            <div class="ref-a">${esc(ra.answer || "")}</div>
+          </div>`).join("")}
       </div>` : ""}`;
   return card;
 }

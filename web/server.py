@@ -194,6 +194,7 @@ def report_to_dict(report) -> dict | None:
         "verdict": report.verdict,
         "verdict_reason": report.verdict_reason,
         "details": report.details,
+        "reference_answers": report.reference_answers,
     }
 
 
