@@ -98,6 +98,7 @@ class QuestionGenerator:
                 follow_up_hints=bq.follow_up_hints,
                 source="bank",
                 code=bq.code,
+                tags=bq.tags,
             ))
             seen_ids.add(bq.id)
 
@@ -126,6 +127,7 @@ class QuestionGenerator:
                     difficulty=bq.difficulty, follow_up_hints=bq.follow_up_hints,
                     source="bank",
                     code=bq.code,
+                    tags=bq.tags,
                 ))
 
         # 重新编号

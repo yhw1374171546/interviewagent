@@ -42,6 +42,8 @@ class InterviewQuestion:
     # {"language": "python|cpp", "function_signature": "...",
     #  "test_cases": [{"name":..., "input_code":..., "expected":...}]}
     code: dict | None = None
+    # 技能标签（从 BankQuestion 透传，RAG 检索与记忆用）
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass

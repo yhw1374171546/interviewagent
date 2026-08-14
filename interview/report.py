@@ -391,14 +391,19 @@ class ReportGenerator:
         参考答案（RAG 增强）：优先检索面经库（真实面经内容），
         检索不到再用题库期望要点兜底。零 LLM 依赖、零向量库依赖，离线可复现。
         """
-        from .qa_bank import QaRetriever
+        from .qa_bank import QaRetriever, get_all_qa_entries
 
-        retriever = QaRetriever()
+        # RAG 全量数据源：内置 22 条面经 + docs/knowledge 知识库（数百条）
+        retriever = QaRetriever(get_all_qa_entries())
         refs = []
         for a in answers:
             q = a.get("question")
             q_text = q.question if isinstance(q, InterviewQuestion) else str(q)
-            hits = retriever.retrieve(q_text, top_k=1)
+            # 检索 query 拼技能标签（英文技能词与面经 tags 对齐，提升匹配）
+            search_text = q_text
+            if isinstance(q, InterviewQuestion) and q.tags:
+                search_text = q_text + " " + " ".join(q.tags)
+            hits = retriever.retrieve(search_text, top_k=1)
             if hits:
                 refs.append({
                     "question": q_text,

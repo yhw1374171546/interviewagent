@@ -667,6 +667,7 @@ class Interviewer:
                 time_limit=q.get("time_limit", 0),
                 source=q.get("source", ""),
                 code=q.get("code"),
+                tags=q.get("tags", []),
             ))
         state.plan = InterviewPlan(
             questions=questions,
@@ -697,6 +698,7 @@ class Interviewer:
                 follow_up_hints=cur_q.get("follow_up_hints", []),
                 source=cur_q.get("source", ""),
                 code=cur_q.get("code"),
+                tags=cur_q.get("tags", []),
             )
 
         # 答题记录（含评估）
@@ -713,6 +715,7 @@ class Interviewer:
                 follow_up_hints=q_data.get("follow_up_hints", []),
                 source=q_data.get("source", ""),
                 code=q_data.get("code"),
+                tags=q_data.get("tags", []),
             )
 
             evaluation = None

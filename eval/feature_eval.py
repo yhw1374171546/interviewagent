@@ -32,7 +32,7 @@ from eval.dataset import EVAL_SAMPLES
 from eval.judge_eval import follow_up_is_relevant
 from interview.evaluator import AnswerEvaluator, FollowUpDecision
 from interview.follow_up_agent import FollowUpAgent
-from interview.qa_bank import QaRetriever
+from interview.qa_bank import QaRetriever, get_all_qa_entries
 from interview.question_bank import QUESTION_BANK, InterviewQuestion, QuestionBankRetriever
 
 
@@ -110,8 +110,8 @@ def _info_density(answer: str) -> int:
 
 
 def eval_reference_quality() -> dict:
-    """expected_points 关键词要点 vs RAG 面经 的参考答案质量"""
-    qa = QaRetriever()
+    """expected_points 关键词要点 vs RAG 面经 的参考答案质量（全量数据源：内置 + Knowledge 知识库）"""
+    qa = QaRetriever(get_all_qa_entries())
 
     before_lens, after_lens = [], []
     before_density, after_density = [], []
@@ -120,7 +120,9 @@ def eval_reference_quality() -> dict:
 
     for bq in QUESTION_BANK:
         before_ans = "答题要点：" + "、".join(bq.expected_points) + "。"
-        hits = qa.retrieve(bq.question, top_k=1)
+        # 检索 query 拼技能标签（与面经 tags 对齐）
+        search = bq.question + " " + " ".join(bq.tags)
+        hits = qa.retrieve(search, top_k=1)
         after_ans = hits[0]["answer"] if hits else before_ans
 
         before_lens.append(len(before_ans))
@@ -148,11 +150,12 @@ def eval_reference_quality() -> dict:
 # ═════════════════ 3. 面经检索覆盖率 ═════════════════
 
 def eval_retrieval_coverage() -> dict:
-    """题库题目能命中相关面经的比例（RAG 数据源覆盖度）"""
-    qa = QaRetriever()
+    """题库题目能命中相关面经的比例（RAG 数据源覆盖度，含 Knowledge 知识库）"""
+    qa = QaRetriever(get_all_qa_entries())
     hit = 0
     for bq in QUESTION_BANK:
-        if qa.retrieve(bq.question, top_k=1):
+        search = bq.question + " " + " ".join(bq.tags)
+        if qa.retrieve(search, top_k=1):
             hit += 1
     return {
         "hit": hit,

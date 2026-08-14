@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -188,8 +189,10 @@ QA_ENTRIES: list[QaEntry] = [
 
 # ── 轻量检索器 ─────────────────────────────────────────────────
 
-# 最低相关度阈值：过滤 n-gram 单个字符对重合带来的微小分数噪音
-MIN_SCORE = 0.05
+# 最低相关度阈值：过滤 n-gram 单个字符对重合带来的微小分数噪音。
+# 知识库条目多（419 条）后噪音更容易过阈值，0.15 能滤掉 0.08-0.12 的
+# 巧合匹配（真正相关的查询分数通常 ≥0.3）。
+MIN_SCORE = 0.15
 
 
 def _tokenize(text: str) -> set[str]:
@@ -244,3 +247,33 @@ class QaRetriever:
         gram_sim = len(q_grams & e_grams) / len(union_grams) if union_grams else 0.0
 
         return 0.6 * token_sim + 0.4 * gram_sim
+
+
+# ── Knowledge 知识库接入（RAG 数据源扩展） ─────────────────────
+# docs/knowledge 是 Agent 开发面试知识库（数百道题），
+# 惰性加载 + 缓存；失败/缺失返回空，不阻塞主流程。
+
+KNOWLEDGE_DIR = Path(__file__).parent.parent / "docs" / "knowledge"
+
+_knowledge_cache: list[QaEntry] | None = None
+
+
+def get_knowledge_entries() -> list[QaEntry]:
+    """惰性加载 docs/knowledge 知识库（缓存），失败返回空列表"""
+    global _knowledge_cache
+    if _knowledge_cache is not None:
+        return _knowledge_cache
+    if not KNOWLEDGE_DIR.exists():
+        _knowledge_cache = []
+        return _knowledge_cache
+    try:
+        from .knowledge_loader import load_knowledge_entries
+        _knowledge_cache = load_knowledge_entries(KNOWLEDGE_DIR)
+    except Exception:
+        _knowledge_cache = []
+    return _knowledge_cache
+
+
+def get_all_qa_entries() -> list[QaEntry]:
+    """内置面经 + Knowledge 知识库（RAG 全量数据源）"""
+    return QA_ENTRIES + get_knowledge_entries()
