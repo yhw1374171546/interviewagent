@@ -83,7 +83,7 @@
   </div>
 </div>
 
-<!-- 代码编辑器弹窗（编程题专用） -->
+<!-- 代码编辑器弹窗（编程题专用，LeetCode 式） -->
 <div id="code-modal" class="modal-overlay code-overlay" hidden>
   <div class="code-modal">
     <div class="code-modal-header">
@@ -93,11 +93,16 @@
       <button id="code-close" class="code-close" title="关闭">✕</button>
     </div>
     <pre id="code-signature" class="code-signature"></pre>
+    <!-- 测试用例展示（LeetCode 式：输入 / 期望输出） -->
+    <div id="code-cases" class="code-cases"></div>
     <textarea id="code-editor" class="code-editor" spellcheck="false"
       placeholder="在这里编写你的代码…"></textarea>
+    <!-- 运行自测结果 -->
+    <div id="code-run-result" class="code-run-result" hidden></div>
     <div class="code-modal-actions">
       <button id="code-cancel" class="btn-secondary">取消</button>
-      <button id="code-submit" class="btn-primary">▶ 运行并提交</button>
+      <button id="code-run" class="btn-run">▶ 运行自测</button>
+      <button id="code-submit" class="btn-primary">提交</button>
     </div>
   </div>
 </div>

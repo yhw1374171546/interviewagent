@@ -10,6 +10,7 @@ const state = {
   currentMeta: null,      // 当前会话元数据
   canResume: false,
   sending: false,
+  codeQuestion: null,     // 当前正在编辑的编程题（含判题元数据）
 };
 
 const TYPE_LABELS = {
@@ -782,6 +783,7 @@ function openCodeModal(q) {
     appendMessage({ role: "assistant", kind: "follow_up", content: "本场面试已结束，无法提交代码。" });
     return;
   }
+  state.codeQuestion = q;
   const code = q.code || {};
   $("#code-lang").textContent = code.language || "python";
   const mode = code.mode || "core";
@@ -791,6 +793,9 @@ function openCodeModal(q) {
   // 无判题元数据的题（如线程池）→ 提示提交后由面试官评估
   $("#code-signature").textContent = code.function_signature
     || "（本题暂无自动判题用例，提交后由面试官评估代码质量）";
+  renderCodeCases(code.test_cases, mode);
+  $("#code-run-result").hidden = true;
+  $("#code-run-result").innerHTML = "";
   $("#code-editor").value = "";
   $("#code-editor").placeholder = mode === "acm"
     ? "编写完整程序：自行读取标准输入（stdin），结果输出到标准输出（stdout）…"
@@ -799,8 +804,82 @@ function openCodeModal(q) {
   $("#code-editor").focus();
 }
 
+// 测试用例展示（LeetCode 式：输入 / 期望输出）
+function renderCodeCases(testCases, mode) {
+  const container = $("#code-cases");
+  if (!testCases || !testCases.length) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  const inputLabel = mode === "acm" ? "stdin" : "输入";
+  container.innerHTML = testCases.map((tc, i) => `
+    <div class="code-case">
+      <div class="code-case-head">用例 ${i + 1}${tc.name ? "：" + tc.name : ""}</div>
+      <div class="code-case-row">
+        <span class="code-case-label">${inputLabel}</span>
+        <pre>${esc(tc.input_code ?? "")}</pre>
+      </div>
+      <div class="code-case-row">
+        <span class="code-case-label">期望输出</span>
+        <pre>${esc(tc.expected ?? "")}</pre>
+      </div>
+    </div>
+  `).join("");
+}
+
+// HTML 转义（测试用例里可能含 < > 等）
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function closeCodeModal() {
   $("#code-modal").hidden = true;
+}
+
+// 运行自测：跑测试用例看结果，不进面试、不评分
+async function runCode() {
+  const code = $("#code-editor").value;
+  const q = state.codeQuestion;
+  if (!code.trim() || !q) return;
+  const meta = q.code || {};
+  const box = $("#code-run-result");
+  box.hidden = false;
+  box.innerHTML = `<div class="judge-summary">⏳ 运行中…</div>`;
+
+  try {
+    const resp = await fetch("/api/code/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code,
+        language: meta.language || "python",
+        mode: meta.mode || "core",
+        test_cases: meta.test_cases || [],
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "运行失败");
+    renderRunResult(data);
+  } catch (e) {
+    box.innerHTML = `<div class="judge-summary fail">❌ ${e.message}</div>`;
+  }
+}
+
+function renderRunResult(j) {
+  const box = $("#code-run-result");
+  const rows = (j.details || []).map((d) => {
+    const icon = d.passed ? "✅" : "❌";
+    const extra = d.passed
+      ? ""
+      : d.error
+        ? ` — ${d.error}`
+        : ` — 期望 ${d.expected ?? ""}，实际 ${d.got ?? ""}`;
+    return `<div class="judge-case ${d.passed ? "pass" : "fail"}">${icon} ${d.name}${extra}</div>`;
+  }).join("");
+  box.innerHTML = `
+    <div class="judge-summary ${j.passed ? "pass" : "fail"}">🧪 自测结果：通过 ${j.passed_tests}/${j.total_tests}</div>
+    ${rows}`;
 }
 
 async function submitCode() {
@@ -844,6 +923,7 @@ $("#new-interview-btn").addEventListener("click", () => {
 // 代码编辑器弹窗
 $("#code-close").addEventListener("click", closeCodeModal);
 $("#code-cancel").addEventListener("click", closeCodeModal);
+$("#code-run").addEventListener("click", runCode);
 $("#code-submit").addEventListener("click", submitCode);
 
 function init() {

@@ -426,6 +426,42 @@ async def skip_question(session_id: str):
     }
 
 
+@app.post("/api/code/run")
+async def run_code(payload: dict):
+    """
+    运行代码（自测，LeetCode 式「运行」按钮）。
+
+    只跑测试用例返回 pass/fail，不推进面试、不评分、不落库。
+    前端把题目的判题元数据（language/mode/test_cases）+ 用户代码传来。
+    """
+    from interview.code_judge import CodeQuestion, TestCase, run_judge
+
+    code = (payload.get("code") or "").strip()
+    language = payload.get("language") or "python"
+    mode = payload.get("mode") or "core"
+    test_cases = payload.get("test_cases") or []
+
+    if not code:
+        raise HTTPException(400, "代码不能为空")
+
+    question = CodeQuestion(
+        id="run", title="", description="", function_signature="",
+        example_input="", example_output="",
+        test_cases=[TestCase(**tc) for tc in test_cases],
+    )
+    judge = await run_judge(code, question, language=language, mode=mode)
+
+    return {
+        "passed": judge.passed,
+        "total_tests": judge.total_tests,
+        "passed_tests": judge.passed_tests,
+        "failed_tests": judge.failed_tests,
+        "errors": judge.errors,
+        "details": judge.details,
+        "stderr": judge.stderr,
+    }
+
+
 @app.get("/api/interviews/{session_id}/report/stream")
 async def stream_report(session_id: str):
     """

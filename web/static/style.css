@@ -645,3 +645,65 @@ body {
 .judge-case { padding: 3px 0; line-height: 1.5; }
 .judge-case.pass { color: #16a34a; }
 .judge-case.fail { color: #dc2626; }
+
+/* ── 代码题测试用例展示 + 运行自测 ── */
+
+.code-cases {
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  background: #fafbfc;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.code-case {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  font-size: 12.5px;
+}
+.code-case-head { font-weight: 600; color: #374151; margin-bottom: 5px; }
+.code-case-row { display: flex; gap: 8px; align-items: flex-start; margin: 3px 0; }
+.code-case-label {
+  flex: 0 0 60px;
+  font-size: 11.5px;
+  color: #9aa3b2;
+  padding-top: 1px;
+}
+.code-case-row pre {
+  margin: 0;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  color: #1f2329;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.code-run-result {
+  max-height: 160px;
+  overflow-y: auto;
+  margin: 0 18px 10px;
+  padding: 10px 12px;
+  background: #f6f8fa;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.judge-summary.pass { color: #16a34a; }
+.judge-summary.fail { color: #dc2626; }
+
+.btn-run {
+  padding: 8px 16px;
+  background: #fff;
+  border: 1px solid #1f6feb;
+  color: #1f6feb;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn-run:hover { background: #e7f0fe; }
+.btn-run:disabled { opacity: .6; cursor: not-allowed; }
