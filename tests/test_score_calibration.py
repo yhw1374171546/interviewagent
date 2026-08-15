@@ -123,3 +123,31 @@ class TestEvaluatorCalibration:
         ev = AnswerEvaluator(MockLLMClient(), calibrate=True)
         result = run(ev.evaluate(_question(), FULL_ANSWER))
         assert result.total_score >= 1
+
+
+# ── Interviewer 集成（A2 能力接入）──────────────────────────────
+
+class TestInterviewerCalibration:
+
+    def test_calibrate_parameter_passed_to_evaluator(self):
+        """Interviewer(calibrate=True) → evaluator.calibrate_enabled=True"""
+        from interview.interviewer import Interviewer
+        from interview.memory_context import InterviewMemory
+
+        iv = Interviewer(
+            MockLLMClient(), total_questions=1,
+            memory=InterviewMemory(use_chroma=False),
+            calibrate=True,
+        )
+        assert iv.evaluator.calibrate_enabled is True
+
+    def test_calibrate_default_off(self):
+        """默认 calibrate=False → 向后兼容"""
+        from interview.interviewer import Interviewer
+        from interview.memory_context import InterviewMemory
+
+        iv = Interviewer(
+            MockLLMClient(), total_questions=1,
+            memory=InterviewMemory(use_chroma=False),
+        )
+        assert iv.evaluator.calibrate_enabled is False

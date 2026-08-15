@@ -362,6 +362,7 @@ async def create_interview(
         defer_report=True,                   # 报告由 SSE 流式生成
         jd_cache=get_jd_cache(),             # JD 语义缓存（相似 JD 复用解析结果）
         multi_judge=get_multi_judge(),       # 多评委仲裁（双评委+分歧裁决，压评分偏差）
+        calibrate=True,                      # 评分校准（按命中率纠正高低估，MAE -37%）
     )
     try:
         turn_start = await interviewer.start(content)
