@@ -163,6 +163,8 @@ agent/
 | **Agent 工具调用** | ReAct + ToolRegistry + Function Calling，真实评测工具选择 100%、任务成功率 100%（8 任务）；支持 DeepSeek 推理模式（reasoning_content 回传） |
 | **循环检测** | 死循环防护：同工具/同参数/同结果重复调用提前终止（软上限，省 token），可解释原因，默认开启 |
 | **失败注入（混沌测试）** | FlakyTool 注入瞬时/持续失败/超时/坏数据，验证 Agent 降级：真实评测无崩溃率 100%，坏数据场景循环检测兜底 |
+| **上下文预算守卫** | 评估 prompt 按优先级裁剪（保题目/回答 > 弱项 > 历史），token 预算控制，兑现「滑动窗口 + 优先级保留」 |
+| **成本预算控制** | 会话级成本/token 双上限：超 warn 评估自动降级为纯规则（省 LLM），超 hard 强制终止，默认宽松不打扰正常流程 |
 | **多 Agent 编排** | 支持串行管道、并行汇总、多方辩论三种协作模式 |
 | **多会话管理** | JSON 持久化 + ChromaDB 向量存储 + 跨会话对比分析 + 面试中断恢复 |
 | **能力画像** | 跨会话聚合每个技能分类的强弱项与进步趋势（侧边栏「📊 能力画像」），画像弱项自动注入下一场面试的追问决策 |
@@ -288,11 +290,11 @@ eval→fix→re-eval 闭环后 MAE 下降 37%。
 ## 测试与覆盖率
 
 ```bash
-python -m pytest tests/ -q                    # 330 个测试，全离线可跑（Mock/FakeLLM）
+python -m pytest tests/ -q                    # 348 个测试，全离线可跑（Mock/FakeLLM）
 python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
 ```
 
-- **330 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
+- **348 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
 - **核心模块覆盖率 87%**（`interview/` 面试链路 + `core/` LLM 基础设施层），CI 以 80% 为门禁
 - 覆盖：评估器健壮性、记忆、可观测性、LLM-as-judge 评测、流式输出（SSE）、
   JD 解析、题库检索、题目生成、状态机、会话管理、输出校验、代码判题、重试熔断、

@@ -204,6 +204,7 @@ class Interviewer:
         llm_strong: LLMClient | None = None,
         defer_report: bool = False,
         adaptive_enabled: bool = False,
+        cost_budget=None,
     ):
         self.llm = llm_client
         self.total_questions = total_questions
@@ -213,6 +214,11 @@ class Interviewer:
         self.defer_report = defer_report
         # 自适应难度: True 时按已答表现动态调整题目难度（D2 特性）
         self.adaptive_enabled = adaptive_enabled
+        # 成本预算控制（#5）: 超 warn 阈值评估降级省 token，超 hard 阈值强制终止。
+        # 不传时用默认宽松预算（真实单场 ≈¥0.02，默认 ¥0.5 兜底，正常不触发）
+        from .cost_control import CostBudget
+
+        self.cost_budget = cost_budget if cost_budget is not None else CostBudget()
 
         # 跨会话记忆（可选 — ChromaDB 不可用时自动降级进程内存储）
         self.memory = memory if memory is not None else InterviewMemory()
@@ -478,17 +484,35 @@ class Interviewer:
         if not question:
             return await self.next_question()
 
+        # 成本预算控制（#5）: 超 warn 阈值 → 本次评估降级为纯规则（省 LLM 调用）
+        budget_status = self.cost_budget.check()
+        degrade_eval = budget_status in ("warn", "hard")
+
         # 评估 — 注入轮内记忆（前几轮摘要）与跨会话记忆（历史弱项）
         # 使追问能"翻旧账"、对历史短板重点验证
         self.state.phase = InterviewPhase.EVALUATE
         history_context = build_history_summary(self.state.answers)
+        # 上下文预算守卫（Context 管理）: 历史+弱项超预算时按优先级裁剪，
+        # 保当前题/回答（CRITICAL），弱项次之（HIGH），历史摘要可裁剪（MEDIUM）
+        from .context_budget import fit_eval_context
+
+        history_context, memory_hints = fit_eval_context(
+            history_context,
+            self.state.memory_hints,
+            question_len=len(question.question),
+            answer_len=len(answer),
+        )
         t0 = time.perf_counter()
         snap_before = self._llm_snapshot(self.llm)
-        evaluation = await self.evaluator.evaluate(
+        evaluator = (
+            self.evaluator if not degrade_eval
+            else self._rule_only_evaluator()
+        )
+        evaluation = await evaluator.evaluate(
             question,
             answer,
             history_context=history_context,
-            memory_hints=self.state.memory_hints,
+            memory_hints=memory_hints,
         )
         self.state.timings["evaluate"] = round(
             self.state.timings.get("evaluate", 0) + time.perf_counter() - t0, 2,
@@ -505,6 +529,33 @@ class Interviewer:
             "model": getattr(self.llm, "model", ""),
         }
         self.state.evaluate_count += 1
+
+        # 成本预算: 记录本次评估用量（增量）
+        snap_after = self._llm_snapshot(self.llm)
+        self.cost_budget.record(
+            prompt_tokens=snap_after.get("prompt_tokens", 0) - snap_before.get("prompt_tokens", 0),
+            completion_tokens=snap_after.get("completion_tokens", 0) - snap_before.get("completion_tokens", 0),
+            model=getattr(self.llm, "model", ""),
+        )
+
+        # 成本预算: 超 hard 阈值 → 强制终止（防成本失控）
+        if budget_status == "hard" or self.cost_budget.check() == "hard":
+            logger.warning(
+                f"[CostBudget] 超出成本硬上限 "
+                f"({self.cost_budget.summary()['total_cost_yuan']} 元)，强制结束面试"
+            )
+            self.state.phase = InterviewPhase.CONCLUSION
+            return TurnResult(
+                phase=InterviewPhase.CONCLUSION,
+                message=(
+                    "本场面试因成本预算限制提前结束。"
+                    f"已消耗 {self.cost_budget.total_tokens} tokens"
+                    f"（≈¥{self.cost_budget.total_cost:.3f}）。"
+                ),
+                report=None,
+                progress="面试结束（预算限制）",
+                is_finished=True,
+            )
 
         # 记录
         self.state.answers.append({
@@ -651,6 +702,14 @@ class Interviewer:
         return turn.report or InterviewReport()
 
     # ── 工具方法 ────────────────────────────────────────
+
+    def _rule_only_evaluator(self):
+        """纯规则评估器（成本降级用）: 无 LLM，零成本，关键词兜底评分"""
+        from .evaluator import AnswerEvaluator
+
+        if getattr(self, "_rule_evaluator", None) is None:
+            self._rule_evaluator = AnswerEvaluator(None)
+        return self._rule_evaluator
 
     def report_text(self) -> str:
         """获取当前报告的文本表示"""
