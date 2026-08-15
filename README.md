@@ -304,6 +304,9 @@ python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
 
 本项目配套了完整的面试 Q&A 文档：
 - **[面试 Q&A 参考](docs/interview_qa.md)** — 13 道高频面试题及详细回答
+- **[Agent 岗投递简历](docs/resume_agent_apply.md)** — 精炼版，可直接投递（工具调用/健壮性/安全/资源治理）
+- **[Agent 岗自看简历](docs/resume_agent_detail.md)** — 详细版，每条含背景/做法/结果/面试讲法
+- **[Agent 岗面试 Q&A](docs/qa_agent_enhancements.md)** — 15 道高频追问深度回答 + 一句话速记卡
 - **[技术博客](docs/blog.md)** — 《从 0 实现一个面试 Agent：混合架构、双引擎评分与容错设计》
 - **[简历定稿](docs/resume.md)** — 项目 bullet + 量化指标 + 追问预案
 - **[简历裁剪版（Agent 开发岗）](docs/resume_agent_dev.md)** — 突出 Agent 架构/多 Agent/RAG/记忆/LLM 工程化的岗位定制版
