@@ -216,6 +216,7 @@ class AnswerEvaluator:
         self,
         llm_client: LLMClient | None = None,
         multi_judge=None,
+        calibrate: bool = False,
     ):
         """
         Args:
@@ -223,9 +224,12 @@ class AnswerEvaluator:
             multi_judge: 多评委仲裁器（可选）。传入后 LLM 深度评估走
                 「双评委并行 + 分歧仲裁」（解决单评委评分偏差/高分低估）。
                 为 None 时保持单评委（默认，不改变既有行为）。
+            calibrate: 评分校准（可选）。True 时按「关键词命中率 vs LLM 评分」
+                校准分数（纠正高分低估/低分高估）。默认 False 不改变既有行为。
         """
         self.llm = llm_client
         self.multi_judge = multi_judge
+        self.calibrate_enabled = calibrate
 
     async def evaluate(
         self,
@@ -418,6 +422,25 @@ class AnswerEvaluator:
             weaknesses = list(llm_data.get("weaknesses", []))
             weaknesses.append("只罗列了关键词，缺少展开说明")
             llm_data["weaknesses"] = weaknesses
+
+        # ── 评分校准（C1）: 按关键词命中率纠正高分低估/低分高估 ──
+        if self.calibrate_enabled:
+            from .score_calibration import calibrate_score
+
+            cal_notes = []
+            correctness, cm = calibrate_score(correctness, match_rate)
+            depth, dm = calibrate_score(depth, match_rate)
+            structure, sm = calibrate_score(structure, match_rate)
+            relevance, rm = calibrate_score(relevance, match_rate)
+            for m in (cm, dm, sm, rm):
+                if m["adjusted"] and m["reason"] not in cal_notes:
+                    cal_notes.append(m["reason"])
+            if cal_notes:
+                llm_data = dict(llm_data)
+                llm_data["overall_comment"] = (
+                    f"（评分校准: {'；'.join(cal_notes[:2])}）"
+                    + llm_data.get("overall_comment", "")
+                )
 
         return EvaluationResult(
             correctness=correctness,

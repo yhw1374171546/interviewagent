@@ -43,7 +43,9 @@ INJECTION_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"give me (?:a )?(?:10|ten|full|perfect|max)(?:/10| out of 10| score| marks?)?", re.I), "评分操纵", "high"),
     (re.compile(r"skip (?:the |my )?(?:evaluation|scoring|grading)", re.I), "评分操纵", "high"),
     # ── 越狱/角色扮演（high）──────────────────────────────
-    (re.compile(r"(?:你被|已)?(?:越狱|破解|解放|释放)", re.I), "越狱", "high"),
+    (re.compile(r"(?:你被|已)?(?:越狱|破解)", re.I), "越狱", "high"),
+    # "释放 GIL/锁" 是技术术语，不能当越狱；仅当与指令/自我/限制语境连用才算
+    (re.compile(r"(?:解放|释放).{0,6}(?:你|自我|本性|限制|约束)", re.I), "越狱", "high"),
     (re.compile(r"(?:从现在起|从今天起|接下来).{0,12}(?:你是|你扮演|你是我的|当你是)", re.I), "越狱", "high"),
     (re.compile(r"(?:忽略|无视).{0,8}(?:安全|限制|约束|道德|原则|设定)", re.I), "越狱", "high"),
     (re.compile(r"(?:设定|角色|身份)切换", re.I), "越狱", "high"),
