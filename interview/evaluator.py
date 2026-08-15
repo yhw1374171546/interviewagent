@@ -34,6 +34,7 @@ from core.llm import LLMClient, Message, Role
 from utils.logger import get_logger
 
 from .output_validator import repair_truncated_json
+from .prompts import active_prompt
 from .question_bank import InterviewQuestion, QuestionType
 
 logger = get_logger(__name__)
@@ -125,79 +126,11 @@ class EvaluationResult:
 
 
 # LLM 深度评估 prompt — 不直接让 LLM 打分，让它分析回答质量
-LLM_DEEP_EVAL_PROMPT = """你是一位资深面试官。请分析面试者对以下问题的回答质量。
-
-## 题目
-{question}
-
-## 期望回答要点
-{expected_points}
-
-## 面试者回答
-{answer}
-
-## 分析要求
-
-1. **深度分析**: 回答是停留在表面还是深入了原理？举例: 如果问 GIL，只说"全局解释器锁"是表面，讲清楚为什么设计 GIL、什么时候是瓶颈、怎么绕过，才算有深度。
-
-2. **结构分析**: 回答是否有逻辑层次？（总分总？先结论后展开？还是想到哪说到哪？）
-
-3. **追问决策**:
-   - 回答很短/太浅 → "deepen"
-   - 有明显错误或漏洞 → "challenge"，生成一个具体的挑战性问题
-   - 回答很好 → "upgrade"，出一个更难的相关问题
-   - 过于抽象没有例子 → "example"
-   - 回答充分 → "move_on"
-
-4. **评价**: 用一句话总结，同时指出一个亮点和一个不足。
-
-## 输出格式
-```json
-{{
-  "depth_level": "表面|较浅|适中|深入|非常深入",
-  "structure_level": "混乱|松散|一般|清晰|优秀",
-  "overall_comment": "一句话评价",
-  "strengths": ["亮点"],
-  "weaknesses": ["不足"],
-  "follow_up_decision": "deepen|challenge|upgrade|example|move_on",
-  "follow_up_question": "追问内容(move_on 时为空)",
-  "follow_up_reason": "追问原因"
-}}
-```"""
+# 文本见 interview/prompts.py 的 "deep_eval"（版本化注册表）
 
 
 # LLM 代码评审 prompt — 无自动判题用例的代码题（类设计/SQL/Shell 等）降级路径
-CODE_REVIEW_PROMPT = """你是一位资深算法面试官。这是一次**代码评审**，请评审面试者提交的代码质量。
-这道题没有自动判题用例，需要你基于代码本身判断正确性。
-
-## 题目
-{question}
-
-## 面试者提交的代码
-```python
-{answer}
-```
-
-## 评审要求
-
-1. **正确性**（最重要）: 算法/逻辑是否正确地解决了题目？有没有明显 bug、边界遗漏、死循环？
-2. **复杂度**: 时间/空间复杂度是否合理？
-3. **代码质量**: 可读性、命名、是否硬编码、是否处理了空输入等边界情况？
-
-## 输出格式
-```json
-{{
-  "correctness": "数字 1-10",
-  "overall_comment": "一句话评价（代码对不对、好在哪、哪里要改）",
-  "strengths": ["亮点"],
-  "weaknesses": ["不足"],
-  "follow_up_decision": "move_on|deepen",
-  "follow_up_question": "追问内容(move_on 时为空)",
-  "follow_up_reason": "追问原因"
-}}
-```
-
-评分参考: 10=完全正确且优雅；8-9=思路正确小瑕疵；6-7=思路基本对但有问题；4-5=方向对但实现有明显缺陷；1-3=严重错误或几乎没写。"""
+# 文本见 interview/prompts.py 的 "code_review"（版本化注册表）
 
 
 class AnswerEvaluator:
@@ -639,7 +572,7 @@ class AnswerEvaluator:
                 },
             )
 
-        prompt = CODE_REVIEW_PROMPT.format(
+        prompt = active_prompt("code_review").format(
             question=question.question,
             answer=answer[:2500],
         )
@@ -828,7 +761,7 @@ class AnswerEvaluator:
         memory_hints: list[str] | None = None,
     ) -> tuple[int, int, dict]:
         """LLM 深度评估（只评估机器做不了的）"""
-        prompt = LLM_DEEP_EVAL_PROMPT.format(
+        prompt = active_prompt("deep_eval").format(
             question=question.question,
             expected_points=", ".join(question.expected_points or ["无"]),
             answer=answer[:2500],

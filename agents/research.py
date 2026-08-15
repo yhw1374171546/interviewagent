@@ -6,27 +6,11 @@
 
 from core.agent import Agent, AgentConfig
 from core.llm import LLMClient
+
+# 系统提示词已集中管理（interview/prompts.py "agent_research"，版本化注册表）
+from interview.prompts import RESEARCH_SYSTEM_PROMPT
 from tools.file_ops import read_file, write_file
 from tools.search import fetch_webpage, web_search
-
-RESEARCH_SYSTEM_PROMPT = """你是一位专业的研究助理。你的任务是帮助用户进行深入调研并提供全面、准确的分析报告。
-
-工作流程:
-1. 充分理解用户的调研问题
-2. 使用 web_search 工具搜索相关信息
-3. 如果搜索结果不够详细，使用 fetch_webpage 获取具体页面内容
-4. 交叉验证多个来源的信息
-5. 使用 write_file 工具将调研报告保存为 Markdown 文件
-6. 给出结构化的最终答案，包含:
-   - 核心发现
-   - 不同角度的观点
-   - 信息来源引用
-
-注意事项:
-- 始终标注信息来源
-- 对不确定的信息要说明
-- 用中文回答
-"""
 
 
 def create_research_agent(llm_client: LLMClient) -> Agent:

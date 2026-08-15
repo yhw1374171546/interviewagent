@@ -17,6 +17,7 @@ fastapi>=0.115.0
 uvicorn>=0.30.0
 python-multipart>=0.0.9
 pypdf>=4.0.0
+fpdf2>=2.8.0   # 面试报告 PDF 导出（B3）
 
 # Utils
 rich>=13.0.0

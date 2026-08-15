@@ -26,36 +26,7 @@ from core.llm import LLMClient, Message, Role
 from .evaluator import EvaluationResult
 from .question_bank import InterviewQuestion
 
-FOLLOW_UP_AGENT_PROMPT = """你是一位资深面试官，正在对候选人进行追问。请根据以下信息，自主判断是否继续追问，以及追问什么。
-
-## 当前题目
-{question}
-
-## 候选人的回答
-{answer}
-
-## 评估参考
-- 关键词命中率: {match_rate:.0%}
-- 评语: {comment}
-- 已命中要点: {matched}
-- 未命中要点: {missed}
-
-## 本轮已追问过的问题（不要重复）
-{asked_follow_ups}
-
-## 你的任务
-1. **判断**：这个回答是否已经考察得足够充分？还有没有值得深挖的价值点（如回答有漏洞、未覆盖关键要点、可以挑战其方案、可以要求举实际例子）？
-2. 若还有价值点 → 生成一个**具体、贴题**的追问（优先围绕「未命中要点」）
-3. 若已充分 → 停止追问
-
-## 输出格式
-```json
-{{
-  "continue": true,
-  "question": "追问内容",
-  "reason": "追问理由"
-}}
-```"""
+# 追问决策 prompt — 文本见 interview/prompts.py 的 "follow_up_agent"（版本化注册表）
 
 
 class FollowUpAgent:
@@ -103,7 +74,9 @@ class FollowUpAgent:
                 "reason": f"检测到 Prompt 注入（{injection['category']}）",
             }
 
-        prompt = FOLLOW_UP_AGENT_PROMPT.format(
+        from .prompts import active_prompt
+
+        prompt = active_prompt("follow_up_agent").format(
             question=question.question,
             answer=answer[:2500],
             match_rate=evaluation.keyword_match_rate or 0.0,

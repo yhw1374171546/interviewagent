@@ -153,18 +153,7 @@ class TurnResult:
 
 # ── 面试官 ───────────────────────────────────────────────────
 
-WARMUP_PROMPT = """你是一位专业的面试官，现在开始一场模拟面试。请根据以下岗位信息，为面试者做一个简短的面试开场介绍。
-
-## 岗位信息
-- 岗位: {position}
-- 核心要求: {skills}
-
-## 开场白要求
-1. 自我介绍（你是什么岗位的面试官）
-2. 说明今天的面试流程和大致的题目数量
-3. 一句话让面试者放松
-
-请用友好、专业的语气。字数控制在 100 字以内。直接输出开场白，不要写"面试官："之类的角色标注。"""
+# 开场白 prompt 已集中到 interview/prompts.py（"warmup"，版本化注册表）
 
 
 class Interviewer:
@@ -932,8 +921,10 @@ class Interviewer:
 
     async def _generate_warmup(self) -> str:
         """生成暖场开场白"""
+        from .prompts import active_prompt
+
         jd = self.state.jd_analysis
-        prompt = WARMUP_PROMPT.format(
+        prompt = active_prompt("warmup").format(
             position=jd.position or "该岗位",
             skills=", ".join(jd.all_skills[:6]) or "相关技能",
         )

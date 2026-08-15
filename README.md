@@ -180,6 +180,7 @@ agent/
 | **代码题自测** | LeetCode 式「运行」按钮：编辑器写完代码 → 跑测试用例看 pass/fail 明细（不进面试、不评分、不落库），提交时才进入 AI 评估 |
 | **报告导出 PDF** | 面试报告一键下载 PDF（fpdf2 + 中文字体自动探测）：总评/维度分/逐题详情/优劣势/改进建议/参考答案，离线可生成、可离线复测 |
 | **历史得分趋势图** | 用量统计页原生 Canvas 折线图：各场面试得分随时间走势 + 均值虚线，跨会话进步可直观对比 |
+| **Prompt 集中管理** | 全部 12 个 LLM prompt 收敛到 `interview/prompts.py`（单一事实来源 + 版本注册表 + A/B 运行时切换），占位符渲染由测试锁住 |
 | **Mock 降级** | 无 API Key 自动切换 MockLLMClient（确定性实现），Web 演示零配置可跑；LLMClient 抽象基类 + 多实现是适配器模式的体现 |
 
 ## 快速开始
@@ -207,7 +208,8 @@ python demo.py                # 工程能力演示（无需 API Key）
 
 ### Docker 一键启动
 
-> ⚠️ 本机未安装 Docker，Dockerfile/compose 为标准写法**未做本地 build 验证**，
+> ⚠️ 本机未安装 Docker，Dockerfile/compose 为标准写法**未做本地 build 验证**（配置完整性已静态校验：
+> requirements 含全部运行依赖含 fpdf2、compose YAML 语法/端口/数据卷/env 注入检查通过），
 > 采用者如有问题请提 issue。本地体验推荐直接用下方「Web Demo」。
 
 ```bash
@@ -218,6 +220,7 @@ docker compose up --build
 
 - 会话数据持久化在宿主 `./data`（容器重建不丢记录）
 - 未配置 API Key 时自动降级 Mock LLM 演示模式，零配置完整体验面试流程
+- 容器内 PDF 导出可用（requirements 含 fpdf2 + 系统需有中文字体，slim 镜像建议挂载宿主字体或安装 fonts-noto-cjk）
 
 ### Web Demo（推荐体验方式）
 
@@ -302,11 +305,11 @@ eval→fix→re-eval 闭环后 MAE 下降 37%。
 ## 测试与覆盖率
 
 ```bash
-python -m pytest tests/ -q                    # 395 个测试，全离线可跑（Mock/FakeLLM）
+python -m pytest tests/ -q                    # 435 个测试，全离线可跑（Mock/FakeLLM）
 python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
 ```
 
-- **395 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
+- **435 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
 - **核心模块覆盖率 87%**（`interview/` 面试链路 + `core/` LLM 基础设施层），CI 以 80% 为门禁
 - 覆盖：评估器健壮性、记忆、可观测性、LLM-as-judge 评测、流式输出（SSE）、
   JD 解析、题库检索、题目生成、状态机、会话管理、输出校验、代码判题、重试熔断、

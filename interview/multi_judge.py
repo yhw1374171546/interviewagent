@@ -25,45 +25,11 @@ from __future__ import annotations
 import asyncio
 import json
 
-from .evaluator import LLM_DEEP_EVAL_PROMPT
+from .prompts import active_prompt
 from .question_bank import InterviewQuestion
 
 # 仲裁 Agent 的 prompt — 结合两位评委的理由给出裁决
-ARBITER_PROMPT = """你是面试评分仲裁员。两位评委对同一份回答给出了不同评分，请裁决。
-
-## 题目
-{question}
-
-## 期望回答要点
-{expected_points}
-
-## 面试者回答
-{answer}
-
-## 评委 A 的评价（严格视角）
-{judge_a}
-
-## 评委 B 的评价（宽容视角）
-{judge_b}
-
-## 裁决要求
-两位评委的分歧说明该回答存在争议。请结合双方理由，给出一个公正的最终评价。
-特别关注: 回答是否真正覆盖了要点、是否深入原理、是否存在明显错误。
-不要因为回答"看起来不错"就给高分，也不要因为风格差异扣分。
-
-## 输出格式
-```json
-{{
-  "depth_level": "表面|较浅|适中|深入|非常深入",
-  "structure_level": "混乱|松散|一般|清晰|优秀",
-  "overall_comment": "一句话裁决评价",
-  "strengths": ["亮点"],
-  "weaknesses": ["不足"],
-  "follow_up_decision": "deepen|challenge|upgrade|example|move_on",
-  "follow_up_question": "追问内容(move_on 时为空)",
-  "follow_up_reason": "追问原因"
-}}
-```"""
+# 文本见 interview/prompts.py 的 "arbiter"（版本化注册表）
 
 # 深度/结构 语义 → 分数映射（与 evaluator 保持一致）
 _DEPTH_MAP = {"表面": 3, "较浅": 5, "适中": 6, "深入": 8, "非常深入": 9}
@@ -92,7 +58,7 @@ def _score(data: dict) -> tuple[int, int]:
 def _format_prompt(question: InterviewQuestion, answer: str,
                    history_context: str, memory_hints: list[str] | None) -> str:
     """构造单评委的评估 prompt（与 _llm_deep_eval 同源）"""
-    prompt = LLM_DEEP_EVAL_PROMPT.format(
+    prompt = active_prompt("deep_eval").format(
         question=question.question,
         expected_points=", ".join(question.expected_points or ["无"]),
         answer=answer[:2500],
@@ -230,7 +196,7 @@ class MultiJudge:
         """仲裁 Agent 裁决分歧"""
         from core.llm import Message, Role
 
-        prompt = ARBITER_PROMPT.format(
+        prompt = active_prompt("arbiter").format(
             question=question.question,
             expected_points=", ".join(question.expected_points or ["无"]),
             answer=answer[:2000],

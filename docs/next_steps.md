@@ -29,7 +29,7 @@ AI 驱动的全真模拟面试系统：输入简历/JD → 规则引擎+LLM 混�
 
 | 指标 | 数值 |
 |------|------|
-| 自动化测试 | **395 个**，CI 全绿，覆盖率 87%（门禁 80%） |
+| 自动化测试 | **435 个**，CI 全绿，覆盖率 87%（门禁 80%；core/llm.py 99%） |
 | 题库 | 193 题（93 原创 + 100 LC）+ 69 道判题用例 |
 | RAG 数据源 | 519 条（22 内置 + 397 知识库 + 100 LC 题解），索引加速 **6.6×** |
 | 评估评分 MAE / Pearson | 真实 30 样本 **0.76 / 0.952**（校准后；未校准 1.2/0.773） |
@@ -46,6 +46,7 @@ AI 驱动的全真模拟面试系统：输入简历/JD → 规则引擎+LLM 混�
 - B 组: 真实 30 样本评测、多评委仲裁、评分校准、tool_use_eval、failure_injection、JD 语义缓存、成本预算、上下文预算、Web 统计页
 - C 组: RAG 索引加速（6.6×）、多题评估并行化（Semaphore 限流）、报告延迟优化（参考答按并行 + 与叙事重叠）
 - B 组（产品体验）: 刷新不丢题（自动恢复）、代码题 LeetCode 式自测、报告导出 PDF（fpdf2）、历史得分趋势图（Canvas）
+- D 组（架构/规范）: Prompt 集中管理（版本化 + A/B）、llm.py 覆盖率 50%→99%、Docker 配置静态验证 + requirements 补 fpdf2
 
 ---
 
@@ -90,11 +91,13 @@ PYTHONIOENCODING=utf-8 python demo.py        # 冒烟
 - ✅ B3 报告导出 PDF（fpdf2 + 中文字体自动探测，`/api/interviews/{id}/report/pdf` + 前端按钮）
 - ✅ B4 历史分数趋势图（用量统计页原生 Canvas 折线图 + 均值虚线）
 
-### 4.3 D 组架构/规范（未做项）
+### 4.3 D 组架构/规范（已完成 ✅）
 
-- D1 Prompt 集中管理（prompts.py 版本化 + A/B，当前散落在各模块）
-- Docker 验证（Dockerfile 已有一版？需验证 docker-compose 一键启动 + 数据卷）
-- `core/llm.py` 覆盖率仅 50% 待补（CI 门禁是全局 80%，llm.py 是最大洼地）
+- ✅ D1 Prompt 集中管理（`interview/prompts.py`：12 个 prompt 版本化注册表 + A/B 运行时切换 + 渲染测试锁住）
+- ✅ Docker 配置验证（requirements 补 fpdf2、compose YAML/端口/数据卷/env 静态校验通过；**本机无 Docker 未 build 实测**——README 如实标注）
+- ✅ `core/llm.py` 覆盖率 50% → **99%**（fake SDK client 零网络测试：OpenAI 字段透传/Anthropic 消息块/cache_control/流式）
+
+**Docker 待办（需要 Docker 环境）**: 在有 Docker 的机器跑 `docker compose up --build` 实测构建与启动（含 PDF 导出/中文字体），通过后把 README 的「未本地 build 验证」标注去掉。
 
 ### 4.4 已关闭（不要再做）
 
@@ -124,11 +127,12 @@ PYTHONIOENCODING=utf-8 python demo.py        # 冒烟
 ## 六、最终验收标准
 
 - [x] streaming 上线（SSE 逐字 + 指标不漏计）
-- [x] pytest 覆盖率 ≥80%（当前 87%）
-- [ ] Docker 一键启动验证
+- [x] pytest 覆盖率 ≥80%（当前 87%；core/llm.py 99%）
+- [ ] Docker 一键启动验证（配置已静态校验 + requirements 补 fpdf2；需 Docker 环境 build 实测）
 - [x] 全量 30 样本评测报告入库
 - [x] 多评委/校准/自适应难度/语义缓存接入生产 + 回归测试锁住
 - [x] RAG 索引加速 / 多题评估并行 / 报告延迟优化（C 组）
 - [x] 刷新不丢题 / 代码自测 / 报告导出 PDF / 得分趋势图（B 组产品体验）
+- [x] Prompt 集中管理（版本化 + A/B）/ llm.py 覆盖率 99%（D 组）
 - [ ] 博客发布（docs/blog.md 已有草稿，待发布）+ 简历定稿（docs/resume* 已同步）
 - [ ] 演示视频（可选）

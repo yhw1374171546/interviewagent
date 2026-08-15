@@ -72,27 +72,7 @@ class JDAnalysis:
 
 
 # LLM 兜底 prompt — 只处理规则搞不定的部分
-LLM_FALLBACK_PROMPT = """你是一位招聘 JD 分析师。以下是一份 JD 中「规则引擎未能自动识别的内容」，请从中提取以下信息，以 JSON 返回:
-
-1. **position**: 岗位名称（如 "高级后端开发工程师"）
-2. **domain_knowledge**: 业务领域知识要求（如 "电商"、"金融风控"、"SaaS"）
-3. **responsibilities**: 核心工作职责（3-5 条）
-4. **interview_focus**: 根据 JD 推断，面试中最应该考察的 3 个方向
-5. **missing_skills**: 规则引擎可能漏掉的技术关键词（请用标准名称，如 "PostgreSQL" 而非 "postgres"）
-
-## 未匹配的 JD 文本
-{unmatched_text}
-
-## 输出格式
-```json
-{{
-  "position": "",
-  "domain_knowledge": [],
-  "responsibilities": [],
-  "interview_focus": [],
-  "missing_skills": []
-}}
-```"""
+# 文本见 interview/prompts.py 的 "jd_fallback"（版本化注册表）
 
 
 class JDParser:
@@ -178,7 +158,9 @@ class JDParser:
 
     async def _llm_fallback(self, unmatched_text: str) -> dict:
         """LLM 兜底解析"""
-        prompt = LLM_FALLBACK_PROMPT.format(unmatched_text=unmatched_text[:3000])
+        from .prompts import active_prompt
+
+        prompt = active_prompt("jd_fallback").format(unmatched_text=unmatched_text[:3000])
 
         response = await self.llm.chat_with_retry(
             messages=[Message(role=Role.USER, content=prompt)],

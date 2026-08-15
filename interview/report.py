@@ -25,6 +25,8 @@ from core.llm import LLMClient, Message, Role
 from .jd_parser import JDAnalysis
 from .question_bank import InterviewQuestion
 
+# 报告 prompt 已集中到 interview/prompts.py（"final_report"/"stream_report"，版本化注册表）
+
 
 @dataclass
 class InterviewReport:
@@ -58,63 +60,6 @@ class InterviewReport:
 
     # 参考答案（逐题 {question, answer}，LLM 生成；Mock/降级时为空，前端回退到 details 的 expected_points）
     reference_answers: list[dict] = field(default_factory=list)
-
-
-FINAL_REPORT_PROMPT = """你是一位资深面试官，请根据以下面试记录，生成一份专业的面试评估报告。
-
-## 岗位信息
-- 岗位: {position}
-- 核心要求: {skills}
-
-## 面试记录
-{interview_log}
-
-## 要求
-请以 JSON 格式返回面试报告，包含以下内容:
-
-1. **overall_score**: 综合评分 (1-10)，根据所有题目的加权表现
-2. **overall_level**: 等级评定（卓越/优秀/良好/一般/需提升）
-3. **main_strengths**: 面试者的 3 个主要优势
-4. **main_weaknesses**: 面试者最需要提升的 3 个方面
-5. **improvement_advice**: 具体的改进建议（200 字左右）
-6. **verdict**: 面试结论（推荐通过 / 建议待定 / 不推荐通过）
-7. **verdict_reason**: 结论理由（100 字左右）
-8. **reference_answers**: 每道题的参考答案（每题 1-2 句，覆盖该题关键知识点，供面试者复盘）
-
-## 输出格式
-```json
-{{
-  "overall_score": 7.5,
-  "overall_level": "优秀",
-  "main_strengths": ["优势1", "优势2", "优势3"],
-  "main_weaknesses": ["不足1", "不足2", "不足3"],
-  "improvement_advice": "具体的改进建议...",
-  "verdict": "推荐通过",
-  "verdict_reason": "结论理由...",
-  "reference_answers": [
-    {{"question": "第1题题目", "answer": "参考答案..."}},
-    {{"question": "第2题题目", "answer": "参考答案..."}}
-  ]
-}}
-```"""
-
-
-# 流式报告叙事 prompt — 纯文本输出（非 JSON），逐字流式显示
-STREAM_REPORT_PROMPT = """你是一位资深面试官。请根据以下面试记录，撰写一段针对性的面试复盘建议。
-
-## 岗位信息
-- 岗位: {position}
-- 核心要求: {skills}
-
-## 面试记录
-{interview_log}
-
-## 要求
-请用自然流畅的中文写一段「改进建议 + 结论理由」，不要用 JSON、不要标题、不要列表符号：
-1. 先给 2-3 条具体、可执行的改进建议（紧扣面试记录中暴露的短板）
-2. 再用一句话给出面试结论的理由
-
-字数控制在 200 字左右，直接输出正文。"""
 
 
 class ReportGenerator:
@@ -151,7 +96,9 @@ class ReportGenerator:
         # ── 调用 LLM 生成综合报告 ──
         interview_log = self._format_interview_log(answers)
 
-        prompt = FINAL_REPORT_PROMPT.format(
+        from .prompts import active_prompt
+
+        prompt = active_prompt("final_report").format(
             position=jd.position or "未知岗位",
             skills=", ".join(jd.all_skills[:8]) or "相关技能",
             interview_log=interview_log,
@@ -219,7 +166,9 @@ class ReportGenerator:
 
         # 流式叙事: 改进建议 + 结论理由（纯文本）
         interview_log = self._format_interview_log(answers)
-        prompt = STREAM_REPORT_PROMPT.format(
+        from .prompts import active_prompt
+
+        prompt = active_prompt("stream_report").format(
             position=jd.position or "未知岗位",
             skills=", ".join(jd.all_skills[:8]) or "相关技能",
             interview_log=interview_log,

@@ -18,6 +18,7 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from .prompts import render_prompt
 from .question_bank import (
     QUESTION_BANK,
     InterviewQuestion,
@@ -163,28 +164,13 @@ class QuestionGenerator:
             f"[{q.id}] ({q.category}) {q.question}" for q in questions[:5]
         )
 
-        prompt = f"""你是一位面试官，你需要将以下面试题微调，使其更贴合这个岗位的具体 JD。
-
-## 岗位信息
-- 岗位: {jd.position}
-- 技术栈: {', '.join(jd.all_skills[:8])}
-- 核心职责: {', '.join(jd.responsibilities[:3]) or '未指定'}
-
-## 当前题目
-{q_list}
-
-## 微调要求
-1. 如果题目的措辞比较泛，请替换为具体的技术名称
-2. 场景设计题调整为贴合实际工作场景
-3. 不要改变题目的考察目标和难度
-
-## 输出格式
-```json
-[
-  {{"id": "T1", "question": "微调后的题目"}},
-  ...
-]
-```"""
+        prompt = render_prompt(
+            "question_customize",
+            position=jd.position,
+            skills=", ".join(jd.all_skills[:8]),
+            responsibilities=", ".join(jd.responsibilities[:3]) or "未指定",
+            q_list=q_list,
+        )
         try:
             response = await self.llm.chat_with_retry(
                 messages=[Message(role=Role.USER, content=prompt)],
@@ -214,30 +200,13 @@ class QuestionGenerator:
         """LLM 补充题库未覆盖的题目"""
         from core.llm import Message, Role
 
-        prompt = f"""你是一位面试官。请为以下岗位生成 {needed} 道面试题。
-
-## 岗位信息
-- 岗位: {jd.position}
-- 技术栈: {', '.join(jd.all_skills[:10])}
-- 面试重点: {', '.join(jd.interview_focus)}
-
-## 要求
-- 优先出「面试重点」方向的题目
-- 难度 2-4 之间
-- 每道题包含 expected_points（3-5 个期望回答要点）
-
-## 输出格式
-```json
-[
-  {{
-    "type": "technical|scenario|project|behavioral|coding",
-    "category": "分类",
-    "question": "题目",
-    "expected_points": ["要点1", "要点2"],
-    "difficulty": 3
-  }}
-]
-```"""
+        prompt = render_prompt(
+            "question_generate",
+            needed=needed,
+            position=jd.position,
+            skills=", ".join(jd.all_skills[:10]),
+            focus=", ".join(jd.interview_focus),
+        )
 
         try:
             response = await self.llm.chat_with_retry(

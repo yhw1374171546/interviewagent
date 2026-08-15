@@ -1120,6 +1120,21 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 **经验**: ① 「已有能力」要逐项验证而非假设——B1/B2 后端早就在，本轮价值在「补齐最后一公里」（自动恢复 UX）+「测试锁住」（续答不丢进度）；② 数据源要跟着架构走——`defer_report` 模式下报告不进 `state.report`，从聊天记录取才正确，想当然用 state 会拿到 None；③ PDF 这类二进制产物也能单测（读回文本断言关键内容），「能测试」是选型 fpdf2 而不是手写 PDF 的原因之一。
 
+### 2026-08-15 18:30 | D 组架构规范：Prompt 集中管理 + llm.py 覆盖率 50%→99% + Docker 配置验证（D1/D3）
+
+**背景**: 用户选择 D 组（架构/规范）。三件事：① 12 个 LLM prompt 散落 7 个模块（改文案要翻多个文件，无法版本化对比）；② `core/llm.py` 覆盖率仅 50% 是全局最大洼地（CI 门禁 80%）；③ Docker 一键启动从未实测（本机无 Docker）。
+
+**做了什么**:
+1. **D1 Prompt 集中管理** — 新建 `interview/prompts.py`：12 个 prompt（面试域 10 + Agent 域 2）全部收敛，**v1 与重构前逐字一致**（零行为漂移）；`PROMPT_REGISTRY` 版本注册表 + `set_prompt_version()` A/B 运行时切换 + `render_prompt()` 统一渲染；各模块删除内联常量改 `active_prompt("name")`；测试锁住注册表完整性/切换/渲染（缺占位符抛 KeyError 尽早暴露不一致）
+2. **D3 core/llm.py 覆盖率 50% → 99%** — 新增 `tests/test_llm_base.py`（structured_chat 成功/重试/耗尽/格式注入、retry_handler 懒初始化等）+ `tests/test_llm_clients.py`（**fake SDK client 注入，零网络**：OpenAI 的 tool_call_id/tool_calls/reasoning_content 字段透传与解析、Anthropic 的 system 分离/tool_result/tool_use 块/cache_control/流式）——那些真实 API 400 的修复逻辑全部有回归测试；剩余 2 行未覆盖是抽象方法体与预留分支
+3. **Docker 配置验证** — 本机无 Docker 无法 build 实测，做静态校验：**requirements.txt 补 fpdf2**（B3 引入的 PDF 依赖，缺了容器内导出会挂——这是本轮发现的真实兼容性缺口）、compose YAML 语法/端口/数据卷/env 注入解析通过、README 如实标注「静态校验通过，未本地 build 验证」+ 容器内 PDF 字体的提示
+
+**为什么这么做**: 架构规范类工作不直接产生用户可见功能，但决定可维护性叙事——「prompt 集中管理 + 版本化 A/B」是 LLM 工程面试必问的工程化实践；「llm.py 99% 覆盖率」把最底层基础设施的信任度补齐；Docker 保持「宣传与实现一致」的诚实标注（不假称验证过）。
+
+**实测**: 435 测试全绿（+30：prompts ×10 + llm 基类 ×10 + llm 客户端 ×10）；ruff 零错误；llm.py 覆盖率 50%→**99%**；全量回归无行为漂移（prompt 逐字一致）。
+
+**经验**: ① Prompt 集中管理的价值不在「换个文件放」，而在「版本化 + 渲染可测」——占位符不一致会在测试里炸出来而不是上线后 400；② 真实 SDK 客户端也能零网络测透——fake client 注入验证的是**我们自己的序列化/解析逻辑**（400 的根因），这正是覆盖率测不到的地方；③ 新功能引入新依赖时，**requirements.txt 必须同步**（fpdf2 漏了容器里 PDF 导出就挂）——「本机跑通 ≠ 部署跑通」，Docker 是这条检查清单的最后一环；④ 无法实测的能力宁可如实标注「静态校验」也不假装验证过，这是项目的诚实底线。
+
 ---
 
 ## 技术决策速查表
