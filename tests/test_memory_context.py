@@ -212,6 +212,13 @@ class TestInterviewMemory:
         memory = self._fresh_memory()
         assert memory.backend in ("chroma", "memory", "none")
 
+    def test_use_chroma_false_skips_chroma(self):
+        """use_chroma=False → 纯内存后端，绝不初始化 chroma（离线工具/benchmark 用）"""
+        memory = InterviewMemory(use_chroma=False)
+        assert memory._ensure_chroma() is False
+        assert memory.backend == "memory"
+        assert memory._chroma is None  # 未初始化 chroma 客户端
+
 
 # ═══════════════ 全链路: 面试 + 记忆（离线） ═══════════════
 

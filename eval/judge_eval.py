@@ -100,8 +100,13 @@ def follow_up_is_relevant(question_text: str, expected_points: list[str],
 
 # ── 评测执行 ───────────────────────────────────────────────────
 
-async def run_eval(llm, samples: list[dict], repeat: int) -> dict:
-    evaluator = AnswerEvaluator(llm)
+async def run_eval(llm, samples: list[dict], repeat: int, multi_judge: bool = False) -> dict:
+    from interview.multi_judge import MultiJudge
+
+    evaluator = AnswerEvaluator(
+        llm,
+        multi_judge=MultiJudge(llm) if multi_judge else None,
+    )
     # 项目已 Agent 化：追问由 FollowUpAgent 自主决策（评分仍用评估器）
     follow_up_agent = FollowUpAgent(llm)
     results = []
@@ -224,14 +229,16 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
 
 # ── 报告输出 ───────────────────────────────────────────────────
 
-def render_report(run: dict, metrics: dict, repeat: int, mock: bool) -> str:
+def render_report(run: dict, metrics: dict, repeat: int, mock: bool,
+                  multi_judge: bool = False) -> str:
     from datetime import date
 
+    judge_label = "多评委仲裁" if multi_judge else "单评委"
     lines = [
         "# 评估器评测报告 (LLM-as-judge)",
         "",
         f"> 生成时间: {date.today().isoformat()} | 模式: {'Mock（框架验证）' if mock else '真实 API'} | "
-        f"重复次数: {repeat} | 样本数: {run['sample_count']} | "
+        f"评委: {judge_label} | 重复次数: {repeat} | 样本数: {run['sample_count']} | "
         f"LLM 调用: {run['total_calls']} 次 | 耗时: {run['elapsed_sec']}s",
         "",
         "## 1. 评分一致性（同一回答评 N 次的标准差）",
@@ -291,6 +298,7 @@ async def main():
     parser.add_argument("--mock", action="store_true", help="Mock LLM 离线跑通框架")
     parser.add_argument("--limit", type=int, default=None, help="只测前 N 道题")
     parser.add_argument("--repeat", type=int, default=3, help="每样本重复评估次数（一致性）")
+    parser.add_argument("--multi-judge", action="store_true", help="多评委仲裁评估（Before/After 对比用）")
     parser.add_argument("--no-report", action="store_true", help="不写 docs/eval_report.md")
     args = parser.parse_args()
 
@@ -308,11 +316,11 @@ async def main():
             base_url=settings.llm_base_url,
         )
 
-    run = await run_eval(llm, samples, args.repeat)
+    run = await run_eval(llm, samples, args.repeat, multi_judge=args.multi_judge)
     metrics = compute_metrics(run)
     print_summary(metrics)
 
-    report = render_report(run, metrics, args.repeat, args.mock)
+    report = render_report(run, metrics, args.repeat, args.mock, multi_judge=args.multi_judge)
     if not args.no_report:
         out = Path(__file__).parent.parent / "docs" / "eval_report.md"
         out.write_text(report, encoding="utf-8")

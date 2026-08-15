@@ -446,7 +446,13 @@ def bench_s4():
 
 async def _bench_s5():
     llm = CountingLLM()
-    interviewer = Interviewer(llm, total_questions=3, max_follow_ups=1)
+    # 离线 benchmark 用纯内存记忆（不初始化 chroma，避免 embedding 模型加载触网）
+    from interview.memory_context import InterviewMemory
+
+    interviewer = Interviewer(
+        llm, total_questions=3, max_follow_ups=1,
+        memory=InterviewMemory(use_chroma=False),
+    )
 
     jd = """Python 后端开发工程师
 任职要求: 精通 Python，熟悉 FastAPI，熟悉 MySQL、Redis，本科 3-5 年经验"""

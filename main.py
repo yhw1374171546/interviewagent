@@ -148,10 +148,14 @@ async def run_interactive(args: argparse.Namespace) -> None:
             return
 
     # ── 初始化面试 ──
+    # CLI 场景用纯内存记忆（不初始化 ChromaDB，避免 embedding 模型加载触网卡住）
+    from interview.memory_context import InterviewMemory
+
     interviewer = Interviewer(
         llm_client=llm,
         total_questions=args.questions,
         max_follow_ups=args.max_follow_ups,
+        memory=InterviewMemory(use_chroma=False),
     )
 
     with Progress(SpinnerColumn(), TextColumn("[cyan]正在解析 JD 并生成面试题...[/cyan]"), transient=True) as progress:
@@ -312,10 +316,14 @@ async def run_demo(args: argparse.Namespace) -> None:
         border_style="cyan",
     ))
 
+    # 演示模式用纯内存记忆（离线，不初始化 ChromaDB）
+    from interview.memory_context import InterviewMemory
+
     interviewer = Interviewer(
         llm_client=llm,
         total_questions=args.questions,
         max_follow_ups=args.max_follow_ups,
+        memory=InterviewMemory(use_chroma=False),
     )
 
     with Progress(SpinnerColumn(), TextColumn("[cyan]解析 JD 并生成面试题...[/cyan]"), transient=True) as progress:

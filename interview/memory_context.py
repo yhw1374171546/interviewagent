@@ -110,17 +110,23 @@ class InterviewMemory:
         3. 任何异常 → no-op（记忆功能关闭，面试不中断）
     """
 
-    def __init__(self, persist_dir: str | None = None):
+    def __init__(self, persist_dir: str | None = None, use_chroma: bool = True):
         self._entries: list[MemoryEntry] = []  # 进程内兜底存储
         self._chroma = None                    # ChromaDB 客户端（懒初始化）
         self._persist_dir = persist_dir
         self._backend = "none"                 # "chroma" | "memory" | "none"
+        # 是否启用 ChromaDB 后端（离线工具/benchmark 传 False 用纯内存，
+        # 避免初始化 chroma + 加载 embedding 模型触发网络）
+        self._use_chroma = use_chroma
 
     # ── 初始化 ChromaDB（懒加载 + 失败降级）──────────────
 
     def _ensure_chroma(self) -> bool:
         if self._chroma is not None:
             return True
+        if not self._use_chroma:
+            self._backend = "memory"
+            return False
         try:
             from memory.vector_store import VectorMemory
 

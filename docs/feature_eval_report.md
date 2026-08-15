@@ -14,6 +14,7 @@
 | `feature_eval_real.py`（真实 API） | FollowUpAgent 真实贴题率 | **真实 30 样本: 贴题率 96.7%**（30 条追问 29 条贴题） |
 | `tool_use_eval.py`（真实 API） | ReAct Agent 工具调用 | **真实 8 任务: 工具选择 100%、任务成功率 100%、步数效率 0.98** |
 | `failure_injection_eval.py`（真实 API） | Agent 故障降级（混沌） | **真实 5 场景: 无崩溃率 100%、坏数据场景循环检测兜底** |
+| `judge_eval.py --multi-judge`（真实 API） | 多评委仲裁评估 | **真实 30 样本: 一致性 std 0.22→0.14（-36%）** |
 | 真实联调（README） | 性能/成本（真 API） | 评估 17.6→5.4s、成本 ≈¥0.02/场（8 题实测，复测日期 2026-08-14） |
 
 ## 二、评测三件套实测（全离线可复现）
@@ -124,6 +125,25 @@ B 组任务用真实 API 全量重测，补齐「真实 30 样本」证据，moc
 **叙事口径**: 「Agent 健壮性做了混沌测试：5 个故障场景无崩溃率 100%，坏数据场景循环检测兜底；
 测试还发现并修复了循环检测误杀失败重试的设计缺陷」——「测过失败路径」是最硬的工程素养证据。
 
+### 8. 多评委仲裁评测（2026-08-15，DeepSeek v4 flash，30 样本）
+
+**背景**: 单评委评估对高分档系统性低估（人工 8.6 vs LLM 6.4，MAE 2.17）。多评委仲裁
+（双评委并行 + 分歧仲裁）从机制上压缩评分偏差与随机性。
+
+| 指标 | 单评委 | **多评委仲裁** | 变化 |
+|------|:---:|:---:|:---:|
+| 一致性 std | 0.22 | **0.14** | **-36%** |
+| MAE | 1.2 | **1.15** | -4% |
+| Pearson | 0.773 | **0.777** | +0.004 |
+| 追问贴题率 | 97% | 97% | 持平 |
+
+> 复现: `python eval/judge_eval.py --multi-judge`（真实，约 30 分钟；`--mock` 验证框架）。
+> 成本: 每题 2-3 次调用（双评委 + 分歧才仲裁），`CostBudget` 兜底。
+> 叙事: 多 Agent 不是炫技——先用评测发现问题（单评委偏差），再用多评委机制性解决，重测验证。
+
+**叙事口径**: 「真实评测发现单评委评分随机性 std 0.22，多评委仲裁后降到 0.14（-36%）——
+双评委并行、分歧大时仲裁裁决。多 Agent 的合理用法是『先有问题，再有解法』。」
+
 ## 三、指标设计审视（本轮修了什么、为什么）
 
 1. **judge_eval 追问贴题率 → 改测 FollowUpAgent**：项目已 Agent 化，追问来源是 Agent 而非评估器；
@@ -152,6 +172,7 @@ B 组任务用真实 API 全量重测，补齐「真实 30 样本」证据，moc
 python eval/feature_eval.py       # 增强前后对比（本报告第 3 节）
 python eval/judge_eval.py --mock   # 评估器三指标（第 2 节，离线）
 python eval/judge_eval.py          # 评估器真实 30 样本（第 5 节，需真实 key，约 15 分钟）
+python eval/judge_eval.py --multi-judge  # 多评委仲裁对比（第 8 节，需真实 key，约 30 分钟）
 python eval/feature_eval_real.py   # FollowUpAgent 真实贴题率（第 5 节，需真实 key，约 7 分钟）
 python eval/tool_use_eval.py       # Agent 工具调用（第 6 节，需真实 key，约 2 分钟）
 python eval/failure_injection_eval.py  # Agent 失败注入（第 7 节，需真实 key，约 2 分钟）

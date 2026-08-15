@@ -212,12 +212,20 @@ class AnswerEvaluator:
         print(f"综合得分: {result.total_score}/10")
     """
 
-    def __init__(self, llm_client: LLMClient | None = None):
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        multi_judge=None,
+    ):
         """
         Args:
             llm_client: LLM 客户端。为 None 时仅使用关键词匹配。
+            multi_judge: 多评委仲裁器（可选）。传入后 LLM 深度评估走
+                「双评委并行 + 分歧仲裁」（解决单评委评分偏差/高分低估）。
+                为 None 时保持单评委（默认，不改变既有行为）。
         """
         self.llm = llm_client
+        self.multi_judge = multi_judge
 
     async def evaluate(
         self,
@@ -344,13 +352,27 @@ class AnswerEvaluator:
             self._relevance_match(answer, question.question), 3, 9,
         )
 
-        # ── 阶段 2: LLM 深度评估 ──
+        # ── 阶段 2: LLM 深度评估（单评委 or 多评委仲裁）──
         if self.llm:
-            depth, structure, llm_data = await self._llm_deep_eval(
-                question, answer,
-                history_context=history_context,
-                memory_hints=memory_hints,
-            )
+            if self.multi_judge is not None:
+                # 多评委: 双评委并行 + 分歧仲裁（解决单评委评分偏差）
+                depth, structure, llm_data, judge_meta = await self.multi_judge.evaluate(
+                    question, answer,
+                    history_context=history_context,
+                    memory_hints=memory_hints,
+                )
+                if judge_meta.get("disagreement") == "high":
+                    llm_data = dict(llm_data)
+                    llm_data["overall_comment"] = (
+                        f"（多评委分歧{'已仲裁' if judge_meta.get('arbitrated') else '，取均分'}）"
+                        + llm_data.get("overall_comment", "")
+                    )
+            else:
+                depth, structure, llm_data = await self._llm_deep_eval(
+                    question, answer,
+                    history_context=history_context,
+                    memory_hints=memory_hints,
+                )
         else:
             depth = self._rate_from_match(match_rate or 0.0, 2, 8)
             structure = 5
