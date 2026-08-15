@@ -207,6 +207,7 @@ class Interviewer:
         adaptive_enabled: bool = False,
         cost_budget=None,
         jd_cache=None,
+        multi_judge=None,
     ):
         self.llm = llm_client
         self.total_questions = total_questions
@@ -225,6 +226,9 @@ class Interviewer:
         # 默认 None = 关闭（避免离线路径加载 embedding 模型触网卡住）；
         # 需要时显式传入 JDSemanticCache（如 Web 生产环境）
         self.jd_cache = jd_cache
+        # 多评委仲裁（A1 能力接入）: 双评委并行 + 分歧仲裁，解决单评委评分偏差。
+        # 默认 None = 单评委（向后兼容）；Web 生产传入 MultiJudge
+        self.multi_judge = multi_judge
 
         # 跨会话记忆（可选 — ChromaDB 不可用时自动降级进程内存储）
         self.memory = memory if memory is not None else InterviewMemory()
@@ -238,7 +242,7 @@ class Interviewer:
         # 子模块
         self.jd_parser = JDParser(llm_client)
         self.question_gen = QuestionGenerator(llm_client)
-        self.evaluator = AnswerEvaluator(llm_client)
+        self.evaluator = AnswerEvaluator(llm_client, multi_judge=multi_judge)
         self.report_gen = ReportGenerator(self.llm_strong)
         # 追问自主决策 Agent（快模型）— 追问环节的"大脑"，失败时回退评估器 5 分类
         self.follow_up_agent = FollowUpAgent(llm_client)

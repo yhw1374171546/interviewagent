@@ -147,6 +147,22 @@ def get_jd_cache():
             _jd_cache = None  # 模型不可用 → 无缓存（正常解析）
     return _jd_cache
 
+
+# 多评委仲裁（懒初始化——双评委 + 分歧仲裁，解决单评委评分偏差）
+_multi_judge = None  # MultiJudge | None
+
+
+def get_multi_judge():
+    """懒获取多评委仲裁器（模型不可用/初始化失败自动降级为单评委）"""
+    global _multi_judge
+    if _multi_judge is None:
+        from interview.multi_judge import MultiJudge
+        try:
+            _multi_judge = MultiJudge(get_fast_llm())
+        except Exception:
+            _multi_judge = None  # 初始化失败 → 单评委（不中断）
+    return _multi_judge
+
 # 能力画像聚合器（跨会话统计强弱项/进步趋势，零 LLM 依赖）
 profile_builder = ProfileBuilder(session_mgr)
 
@@ -345,6 +361,7 @@ async def create_interview(
         llm_strong=get_llm(settings.llm_model),  # 最终报告: 强模型
         defer_report=True,                   # 报告由 SSE 流式生成
         jd_cache=get_jd_cache(),             # JD 语义缓存（相似 JD 复用解析结果）
+        multi_judge=get_multi_judge(),       # 多评委仲裁（双评委+分歧裁决，压评分偏差）
     )
     try:
         turn_start = await interviewer.start(content)
