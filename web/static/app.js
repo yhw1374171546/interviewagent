@@ -1034,6 +1034,67 @@ $("#code-submit").addEventListener("click", submitCode);
 $("#profile-btn").addEventListener("click", openProfile);
 $("#profile-close").addEventListener("click", closeProfile);
 
+/* ═══════════════ 全局用量统计 ═══════════════ */
+
+async function openStats() {
+  $("#stats-modal").hidden = false;
+  const body = $("#stats-body");
+  body.innerHTML = `<div class="profile-loading">加载中…</div>`;
+  try {
+    const resp = await fetch("/api/stats");
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "加载失败");
+    renderStats(data);
+  } catch (e) {
+    body.innerHTML = `<div class="profile-empty">加载失败：${e.message}</div>`;
+  }
+}
+
+function closeStats() {
+  $("#stats-modal").hidden = true;
+}
+
+function fmtTokens(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+  return String(n);
+}
+
+function renderStats(s) {
+  const body = $("#stats-body");
+  if (!s.completed_sessions) {
+    body.innerHTML = `<div class="profile-empty">还没有完成的面试<br>完成几场面试后再来看看用量统计吧</div>`;
+    return;
+  }
+
+  const cards = `
+    <div class="stats-cards">
+      <div class="stats-card"><div class="stats-card-num">${s.completed_sessions}</div><div class="stats-card-label">完成面试</div></div>
+      <div class="stats-card"><div class="stats-card-num">${fmtTokens(s.total_tokens)}</div><div class="stats-card-label">总 Token</div></div>
+      <div class="stats-card"><div class="stats-card-num">¥${s.estimated_cost_yuan}</div><div class="stats-card-label">估算成本</div></div>
+      <div class="stats-card"><div class="stats-card-num">${s.total_latency_sec}s</div><div class="stats-card-label">LLM 总耗时</div></div>
+    </div>`;
+
+  const rows = (s.per_session || []).map((p) => `
+    <tr>
+      <td title="${esc(p.session_id)}">${esc(p.position)}</td>
+      <td>${fmtTokens(p.total_tokens)}</td>
+      <td>¥${p.cost_yuan}</td>
+      <td>${p.latency_sec}s</td>
+      <td>${p.overall_score ?? "—"}</td>
+    </tr>`).join("");
+
+  body.innerHTML = cards + `
+    <div class="stats-note">口径：token × 价格表估算（非账单）；仅统计已完成的面试</div>
+    <table class="stats-table">
+      <thead><tr><th>岗位</th><th>Token</th><th>成本</th><th>耗时</th><th>得分</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+$("#stats-btn").addEventListener("click", openStats);
+$("#stats-close").addEventListener("click", closeStats);
+
 function init() {
   // DeepSeek 式单视图: 始终进入聊天界面，侧边栏历史常驻，
   // 主区显示新建面试表单（未选中会话时）

@@ -117,9 +117,19 @@ session_mgr = SessionManager(
 INTERVIEWERS: dict[str, Interviewer] = {}
 
 # 跨会话记忆（ChromaDB 不可用时自动降级进程内存储）
-shared_memory = InterviewMemory(
-    persist_dir=str(settings.project_root / "data" / "memory")
-)
+# 注意: 懒初始化——装 chromadb 后顶层直接 InterviewMemory() 会加载 embedding
+# 模型并触网（HEAD huggingface.co），服务启动即卡死。改为首次用时初始化。
+_shared_memory: InterviewMemory | None = None
+
+
+def get_shared_memory():
+    """懒获取跨会话记忆（首次调用时初始化，失败降级进程内）"""
+    global _shared_memory
+    if _shared_memory is None:
+        _shared_memory = InterviewMemory(
+            persist_dir=str(settings.project_root / "data" / "memory")
+        )
+    return _shared_memory
 
 # 能力画像聚合器（跨会话统计强弱项/进步趋势，零 LLM 依赖）
 profile_builder = ProfileBuilder(session_mgr)
@@ -238,7 +248,7 @@ def get_interviewer(session_id: str) -> Interviewer:
     interviewer = Interviewer.from_dict(
         record.interviewer_state,
         get_fast_llm(),
-        memory=shared_memory,
+        memory=get_shared_memory(),
         llm_strong=get_llm(settings.llm_model),
     )
     interviewer.session_id = session_id
@@ -315,7 +325,7 @@ async def create_interview(
     # 创建 Interviewer 并开始
     interviewer = Interviewer(
         get_fast_llm(),                      # 高频调用: 评估/JD/暖场/出题
-        memory=shared_memory,
+        memory=get_shared_memory(),
         llm_strong=get_llm(settings.llm_model),  # 最终报告: 强模型
         defer_report=True,                   # 报告由 SSE 流式生成
     )
@@ -555,18 +565,19 @@ async def qa_search(q: str = "", top_k: int = 3):
     return {"query": query, "count": len(results), "results": results}
 
 
-@app.get("/api/stats")
-async def global_stats():
+def _aggregate_stats(sessions: list) -> dict:
     """
-    全局用量统计（可观测性）— 聚合所有已完成面试的
-    token 消耗、成本估算、调用耗时。数据来自会话快照，随时可查。
+    聚合全局用量统计（可测试纯函数）。
+
+    输入 session_mgr.list_sessions() 的 SessionMeta 列表，
+    输出聚合指标 + 每会话明细。
     """
-    sessions = session_mgr.list_sessions(limit=100)
     total_prompt = 0
     total_completion = 0
     total_cost = 0.0
     total_latency = 0.0
     completed = 0
+    per_session: list[dict] = []
 
     for meta in sessions:
         record = session_mgr.load(meta.session_id)
@@ -576,18 +587,39 @@ async def global_stats():
         if not metrics:
             continue
         completed += 1
+        s_prompt = s_completion = 0
+        s_latency = 0.0
+        s_cost = 0.0
         for m in metrics.values():
-            total_prompt += m.get("prompt_tokens", 0)
-            total_completion += m.get("completion_tokens", 0)
-            total_latency += m.get("latency", 0)
+            s_prompt += m.get("prompt_tokens", 0)
+            s_completion += m.get("completion_tokens", 0)
+            s_latency += m.get("latency", 0)
 
         # 成本估算: 按阶段模型分别计价
         for m in metrics.values():
             price = settings.llm_pricing.get(m.get("model", ""), [0, 0])
-            total_cost += (
+            s_cost += (
                 m.get("prompt_tokens", 0) / 1_000_000 * price[0]
                 + m.get("completion_tokens", 0) / 1_000_000 * price[1]
             )
+
+        total_prompt += s_prompt
+        total_completion += s_completion
+        total_cost += s_cost
+        total_latency += s_latency
+
+        per_session.append({
+            "session_id": meta.session_id,
+            "position": meta.position or "未命名面试",
+            "created_at": meta.created_at,
+            "overall_score": meta.overall_score,
+            "question_count": meta.question_count,
+            "prompt_tokens": s_prompt,
+            "completion_tokens": s_completion,
+            "total_tokens": s_prompt + s_completion,
+            "latency_sec": round(s_latency, 1),
+            "cost_yuan": round(s_cost, 4),
+        })
 
     return {
         "completed_sessions": completed,
@@ -596,7 +628,18 @@ async def global_stats():
         "total_tokens": total_prompt + total_completion,
         "total_latency_sec": round(total_latency, 1),
         "estimated_cost_yuan": round(total_cost, 4),
+        "per_session": per_session,
     }
+
+
+@app.get("/api/stats")
+async def global_stats():
+    """
+    全局用量统计（可观测性）— 聚合所有已完成面试的
+    token 消耗、成本估算、调用耗时。数据来自会话快照，随时可查。
+    """
+    sessions = session_mgr.list_sessions(limit=100)
+    return _aggregate_stats(sessions)
 
 
 @app.get("/api/interviews/{session_id}")

@@ -19,6 +19,7 @@
     <div id="history-list" class="history-list"></div>
     <div class="sidebar-footer">
       <button id="profile-btn" class="btn-profile" title="查看跨会话能力画像">📊 能力画像</button>
+      <button id="stats-btn" class="btn-profile" title="查看全局用量统计">📈 用量统计</button>
       <div id="mock-banner" hidden><span class="mock-dot"></span> 演示模式（Mock LLM）</div>
     </div>
   </aside>
@@ -116,6 +117,17 @@
       <button id="profile-close" class="code-close" title="关闭">✕</button>
     </div>
     <div id="profile-body" class="profile-body"></div>
+  </div>
+</div>
+
+<!-- 用量统计弹窗 -->
+<div id="stats-modal" class="modal-overlay" hidden>
+  <div class="profile-modal">
+    <div class="profile-modal-header">
+      <div class="code-modal-title">📈 全局用量统计</div>
+      <button id="stats-close" class="code-close" title="关闭">✕</button>
+    </div>
+    <div id="stats-body" class="profile-body"></div>
   </div>
 </div>
 
