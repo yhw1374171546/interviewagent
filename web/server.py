@@ -363,6 +363,7 @@ async def create_interview(
         jd_cache=get_jd_cache(),             # JD 语义缓存（相似 JD 复用解析结果）
         multi_judge=get_multi_judge(),       # 多评委仲裁（双评委+分歧裁决，压评分偏差）
         calibrate=True,                      # 评分校准（按命中率纠正高低估，MAE -37%）
+        adaptive_enabled=True,               # 自适应难度（答好升级/答差降级，个性化面试）
     )
     try:
         turn_start = await interviewer.start(content)
