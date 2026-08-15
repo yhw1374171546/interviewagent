@@ -84,6 +84,7 @@ class InterviewState:
     # JD 相关
     jd_text: str = ""
     jd_analysis: JDAnalysis = field(default_factory=JDAnalysis)
+    cache_hit: bool = False  # JD 语义缓存是否命中（可观测性）
 
     # 题目
     plan: InterviewPlan = field(default_factory=InterviewPlan)
@@ -205,6 +206,7 @@ class Interviewer:
         defer_report: bool = False,
         adaptive_enabled: bool = False,
         cost_budget=None,
+        jd_cache=None,
     ):
         self.llm = llm_client
         self.total_questions = total_questions
@@ -219,6 +221,10 @@ class Interviewer:
         from .cost_control import CostBudget
 
         self.cost_budget = cost_budget if cost_budget is not None else CostBudget()
+        # JD 语义缓存（B2）: 相似 JD 复用解析结果，省 LLM 调用。
+        # 默认 None = 关闭（避免离线路径加载 embedding 模型触网卡住）；
+        # 需要时显式传入 JDSemanticCache（如 Web 生产环境）
+        self.jd_cache = jd_cache
 
         # 跨会话记忆（可选 — ChromaDB 不可用时自动降级进程内存储）
         self.memory = memory if memory is not None else InterviewMemory()
@@ -279,11 +285,25 @@ class Interviewer:
             max_follow_ups=self.max_follow_ups,
         )
 
-        # 1. 解析 JD
+        # 1. 解析 JD（带语义缓存: 相似 JD 复用结果，省 LLM 调用）
         self.state.phase = InterviewPhase.INIT
         t0 = time.perf_counter()
         snap_before = self._llm_snapshot(self.llm)
-        self.state.jd_analysis = await self.jd_parser.parse(jd_text)
+
+        cached_analysis = None
+        if self.jd_cache is not None:
+            cached_analysis = self.jd_cache.lookup(jd_text)
+
+        if cached_analysis is not None:
+            # 语义命中缓存 → 0 LLM 调用
+            self.state.jd_analysis = cached_analysis
+            self.state.cache_hit = True
+        else:
+            self.state.jd_analysis = await self.jd_parser.parse(jd_text)
+            self.state.cache_hit = False
+            if self.jd_cache is not None:
+                self.jd_cache.store(jd_text, self.state.jd_analysis)
+
         self._record_stage("jd_parse", t0, self.llm, snap_before)
 
         # 1.5 跨会话记忆: 检索与当前 JD 技能相关的历史弱项

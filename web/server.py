@@ -131,6 +131,22 @@ def get_shared_memory():
         )
     return _shared_memory
 
+
+# JD 语义缓存（懒初始化——embedding 模型加载较重，首次用时才建）
+_jd_cache = None  # JDSemanticCache | None（字符串注解避免顶层导入）
+
+
+def get_jd_cache():
+    """懒获取 JD 语义缓存（模型加载失败自动降级为无缓存）"""
+    global _jd_cache
+    if _jd_cache is None:
+        from interview.semantic_cache import JDSemanticCache
+        try:
+            _jd_cache = JDSemanticCache()
+        except Exception:
+            _jd_cache = None  # 模型不可用 → 无缓存（正常解析）
+    return _jd_cache
+
 # 能力画像聚合器（跨会话统计强弱项/进步趋势，零 LLM 依赖）
 profile_builder = ProfileBuilder(session_mgr)
 
@@ -328,6 +344,7 @@ async def create_interview(
         memory=get_shared_memory(),
         llm_strong=get_llm(settings.llm_model),  # 最终报告: 强模型
         defer_report=True,                   # 报告由 SSE 流式生成
+        jd_cache=get_jd_cache(),             # JD 语义缓存（相似 JD 复用解析结果）
     )
     try:
         turn_start = await interviewer.start(content)
