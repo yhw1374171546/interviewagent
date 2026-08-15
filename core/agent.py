@@ -80,6 +80,7 @@ class AgentConfig:
     loop_detection: bool = True
     loop_same_tool_repeats: int = 3   # 同一工具连续调用次数阈值
     loop_same_args_repeats: int = 2   # 同一工具+同参数重复次数阈值（强信号）
+    loop_fail_repeats: int = 3        # 连续失败重试次数阈值（工具不可用兜底）
 
     # ReAct 模式下的 System Prompt 模板
     system_prompt: str = (
@@ -129,6 +130,7 @@ class Agent:
         self._loop_detector = LoopDetector(
             same_tool_repeats=self.config.loop_same_tool_repeats,
             same_args_repeats=self.config.loop_same_args_repeats,
+            fail_repeats=self.config.loop_fail_repeats,
         )
 
     # ── Public API ───────────────────────────────────────────
@@ -229,10 +231,13 @@ class Agent:
                 observations.append(result)
                 self._tool_calls_count += 1
 
-                # 循环检测: 同工具/同参数/同结果重复 → 提前终止
+                # 循环检测: 同工具/同参数/同结果重复 → 提前终止。
+                # 失败（"错误:" 开头）的重试是合法行为，不计入循环。
                 if self.config.loop_detection:
                     status = self._loop_detector.record(
-                        tc.name, tc.arguments, observation=result,
+                        tc.name, tc.arguments,
+                        observation=result,
+                        failed=result.startswith("错误:"),
                     )
                     if status["loop_detected"]:
                         loop_hit = status
