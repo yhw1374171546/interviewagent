@@ -1099,6 +1099,27 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 **经验**: ① 检索/评分这类「无状态纯计算」是性能优化的安全区——预计算索引 + 并发不改语义，测试断言一致性即可放心上；② 面试主流程**不能**并行化（对话式逐题依赖用户回答），并行化只作用于评测/批处理/报告这类批量场景——「哪里能并行」取决于数据依赖，不是所有循环都能 gather；③ 性能数字分两类：本机可复现的（索引加速）与依赖环境的（API 并行加速比）——前者直接写进简历，后者标注机制演示，混为一谈就是宣传失真。
 
+### 2026-08-15 17:20 | B 组产品体验：刷新不丢题 + 代码自测 + 报告导出 PDF + 得分趋势图（B1/B2/B3/B4）
+
+**背景**: C 组性能完成后用户选择 B 组产品体验。逐项核对发现 B1/B2 后端与前端**已具备大半**（磁盘快照重建、`/api/code/run`、LeetCode 式编辑器都在），本轮补齐缺口 + 验证 + 两件全新能力（B3 PDF、B4 趋势图）。
+
+**做了什么**:
+1. **B1 刷新不丢题（补齐 UX）** — 后端 `get_interviewer` 磁盘快照重建早已就绪，缺的是「刷新后用户要手动找会话」：前端 `localStorage` 记住上次会话，刷新后自动回跳恢复（`openSession` 自动执行）；补集成测试「中途序列化 → `from_dict` 重建 → 继续答题不丢进度」（`test_resume_after_restart_continues_interview`）
+2. **B2 代码题自测（验证已有）** — 前端编辑器 + 「运行自测」按钮 + pass/fail 明细 + 后端 `/api/code/run`（不推进面试/不评分/不落库）均已存在，本轮确认无缺口
+3. **B3 报告导出 PDF（全新）** — `interview/pdf_report.py`：fpdf2 生成 A4 PDF（中文字体跨平台自动探测 simhei/msyh/simsun/文泉驿/Noto，结果缓存），emoji 剥离避免豆腐块；`GET /api/interviews/{id}/report/pdf` 下载端点（报告从聊天记录 `kind="report"` 消息取——发现 Web 生产 `defer_report=True` 下报告**不在 state**，只在 messages，这是数据源的关键修正）；前端报告卡片「⬇ 导出 PDF」按钮
+4. **B4 历史得分趋势图（全新）** — 用量统计页原生 Canvas 折线图（零依赖）：各场得分按时间排序 + 均值虚线 + 日期标注；数据直接复用 `/api/stats` 的 `per_session`（已有 `_aggregate_stats` 纯函数 + 测试背书）
+
+**踩坑**（PDF 三个连环坑，全部测试锁住）:
+- fpdf2 `multi_cell` 默认 `new_x="RIGHT"` — 调用后光标停在行尾，下次 `multi_cell(0,...)` 可用宽度≈0 → "Not enough horizontal space"；必须显式 `new_x="LMARGIN", new_y="NEXT"`
+- `style="B"` 需要预注册粗体变体（`add_font("cjk","B",...)`），否则 "Undefined font: cjkB"
+- SimHei 缺 emoji/`•` 字形 → 渲染警告/豆腐块；生成前统一剥离 emoji 范围字符
+
+**为什么这么做**: B 组是「面试官体验」而非「工程指标」——刷新丢题、不能自测、报告只能看不能存、进步看不到，都是真实用户痛点。PDF 导出坚持「真文件下载」（fpdf2）而非浏览器打印另存，能力更完整且可测试（`%PDF` 头 + pypdf 可读断言）。
+
+**实测**: 395 测试全绿（+5：PDF 生成/字体缺失/空报告 ×4 + 断点恢复续答 ×1）；ruff 零错误；`node --check` 通过；server 导入 + PDF 路由注册验证通过。
+
+**经验**: ① 「已有能力」要逐项验证而非假设——B1/B2 后端早就在，本轮价值在「补齐最后一公里」（自动恢复 UX）+「测试锁住」（续答不丢进度）；② 数据源要跟着架构走——`defer_report` 模式下报告不进 `state.report`，从聊天记录取才正确，想当然用 state 会拿到 None；③ PDF 这类二进制产物也能单测（读回文本断言关键内容），「能测试」是选型 fpdf2 而不是手写 PDF 的原因之一。
+
 ---
 
 ## 技术决策速查表

@@ -19,17 +19,17 @@ AI 驱动的全真模拟面试系统：输入简历/JD → 规则引擎+LLM 混�
 |------|------|
 | `interview/` | interviewer(7 状态机+自适应难度) / jd_parser(规则+LLM 兜底+语义缓存) / question_bank(193 题+倒排索引) / evaluator(双引擎+多评委+评分校准+注入防护) / report(SSE 流式+RAG 参考答按) / code_judge(69 用例沙箱判题) / multi_judge(双评委仲裁) / score_calibration / adaptive / cost_control / context_budget / semantic_cache / injection / loop_detector |
 | `core/` | llm(多 Provider+重试+流式+reasoning_content)、retry、agent(ReAct)、orchestrator(多 Agent)、mock_llm(离线演示)、loop_detector |
-| `web/` | FastAPI server.py（懒加载 shared_memory/jd_cache/multi_judge + 4 项能力全启用）+ 原生前端 |
+| `web/` | FastAPI server.py（懒加载 shared_memory/jd_cache/multi_judge + 4 项能力全启用 + PDF 导出端点）+ 原生前端（断点续聊/代码自测/趋势图） |
 | `eval/` | judge_eval（30 样本三指标，支持并行）、feature_eval、tool_use_eval、failure_injection_eval |
 | `benchmark.py` | 六项工程指标（S1-S6，v1/v2 配置对比，离线可复现） |
-| `tests/` | 390 个测试（全离线可跑），覆盖率 87%（core/llm.py 仅 50% 待补） |
+| `tests/` | 395 个测试（全离线可跑），覆盖率 87%（core/llm.py 仅 50% 待补） |
 | `docs/` | README、CHANGELOG（面试复习材料）、architecture、optimization、interview_qa、eval_report、feature_eval_report、resume*、knowledge（397 条知识库） |
 
 ### 1.3 关键指标现状（简历引用，全部可复现）
 
 | 指标 | 数值 |
 |------|------|
-| 自动化测试 | **390 个**，CI 全绿，覆盖率 87%（门禁 80%） |
+| 自动化测试 | **395 个**，CI 全绿，覆盖率 87%（门禁 80%） |
 | 题库 | 193 题（93 原创 + 100 LC）+ 69 道判题用例 |
 | RAG 数据源 | 519 条（22 内置 + 397 知识库 + 100 LC 题解），索引加速 **6.6×** |
 | 评估评分 MAE / Pearson | 真实 30 样本 **0.76 / 0.952**（校准后；未校准 1.2/0.773） |
@@ -45,6 +45,7 @@ AI 驱动的全真模拟面试系统：输入简历/JD → 规则引擎+LLM 混�
 - A 组: 多评委接入 Web、评分校准接入 Web、自适应难度接入 Web（能力落地三件套 + 回归测试）
 - B 组: 真实 30 样本评测、多评委仲裁、评分校准、tool_use_eval、failure_injection、JD 语义缓存、成本预算、上下文预算、Web 统计页
 - C 组: RAG 索引加速（6.6×）、多题评估并行化（Semaphore 限流）、报告延迟优化（参考答按并行 + 与叙事重叠）
+- B 组（产品体验）: 刷新不丢题（自动恢复）、代码题 LeetCode 式自测、报告导出 PDF（fpdf2）、历史得分趋势图（Canvas）
 
 ---
 
@@ -64,7 +65,7 @@ AI 驱动的全真模拟面试系统：输入简历/JD → 规则引擎+LLM 混�
 
 ```bash
 python -m ruff check .              # 必须 0 error
-python -m pytest tests/ -q          # 必须全绿（390）
+python -m pytest tests/ -q          # 必须全绿（395）
 node --check web/static/app.js      # 改前端时
 PYTHONIOENCODING=utf-8 python benchmark.py   # 改核心逻辑时（S1-S6 全过）
 PYTHONIOENCODING=utf-8 python demo.py        # 冒烟
@@ -82,12 +83,12 @@ PYTHONIOENCODING=utf-8 python demo.py        # 冒烟
 - 1 分钟屏录：JD 输入 → 面试问答（含追问）→ SSE 流式报告
 - 前置: 写 `docs/demo_script.md` 分镜脚本 + 一键启动命令（视频需用户本人录屏）
 
-### 4.2 B 组产品体验（未做项）
+### 4.2 B 组产品体验（已完成 ✅）
 
-- B1 面试中途刷新不丢题（断点恢复已有 SessionManager 基础，缺 Web 层接线）
-- B2 代码题自测 UX（用户在编辑器里写完先本地跑再提交）
-- B3 报告导出 PDF（pypdf 已装，缺导出端点 + 前端按钮）
-- B4 历史分数趋势图（/api/stats 数据已有，缺前端图表）
+- ✅ B1 面试中途刷新不丢题（服务端磁盘快照重建 + 前端 localStorage 自动回跳 + 续答测试锁住）
+- ✅ B2 代码题自测 UX（LeetCode 式「运行」按钮 + pass/fail 明细，已有并验证）
+- ✅ B3 报告导出 PDF（fpdf2 + 中文字体自动探测，`/api/interviews/{id}/report/pdf` + 前端按钮）
+- ✅ B4 历史分数趋势图（用量统计页原生 Canvas 折线图 + 均值虚线）
 
 ### 4.3 D 组架构/规范（未做项）
 
@@ -128,5 +129,6 @@ PYTHONIOENCODING=utf-8 python demo.py        # 冒烟
 - [x] 全量 30 样本评测报告入库
 - [x] 多评委/校准/自适应难度/语义缓存接入生产 + 回归测试锁住
 - [x] RAG 索引加速 / 多题评估并行 / 报告延迟优化（C 组）
+- [x] 刷新不丢题 / 代码自测 / 报告导出 PDF / 得分趋势图（B 组产品体验）
 - [ ] 博客发布（docs/blog.md 已有草稿，待发布）+ 简历定稿（docs/resume* 已同步）
 - [ ] 演示视频（可选）

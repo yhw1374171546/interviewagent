@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).parent.parent))  # 保证项目根目录可导入
@@ -707,6 +707,57 @@ async def get_interview(session_id: str):
             else record.interviewer_state.get("state", {}).get("timings", {})
         ),
     }
+
+
+@app.get("/api/interviews/{session_id}/report/pdf")
+async def export_report_pdf(session_id: str):
+    """
+    导出面试报告 PDF（B3 产品体验）。
+
+    fpdf2 生成 A4 PDF 下载文件：总评/维度分/逐题详情/优劣势/改进建议/参考答案。
+    报告数据优先取内存 Interviewer（最新），否则取磁盘快照（服务重启后仍可导出）。
+    面试未结束或报告未生成 → 409；中文字体缺失 → 500（明确提示，不输出乱码）。
+    """
+    from interview.pdf_report import PdfExportError, build_report_pdf
+
+    record = session_mgr.load(session_id)
+    if not record:
+        raise HTTPException(404, "会话不存在")
+
+    # 报告数据源: 聊天记录 kind="report" 消息（Web 生产 defer_report=True，
+    # 报告以 dict 存于此，内存 RECORD_MESSAGES 或磁盘 record.messages 都有），
+    # 兜底磁盘快照 state.report（非 defer 场景，InterviewState 无 report 字段时跳过）
+    report = None
+    messages = RECORD_MESSAGES.get(session_id) or record.messages
+    for m in reversed(messages):
+        if m.get("kind") == "report" and m.get("report"):
+            report = m["report"]
+            break
+    if report is None:
+        raw = (record.interviewer_state or {}).get("state", {}).get("report")
+        if raw:
+            report = raw  # 快照中 InterviewReport 已按字段名序列化（与 report_to_dict 同构）
+
+    if not report or not report.get("details"):
+        raise HTTPException(409, "该面试尚未生成完整报告（进行中或报告缺失），无法导出 PDF")
+
+    meta = {
+        "position": record.meta.position,
+        "session_id": session_id,
+        "created_at": record.meta.created_at,
+    }
+    try:
+        pdf_bytes = build_report_pdf(meta, report)
+    except PdfExportError as e:
+        raise HTTPException(500, str(e))
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="interview-report-{session_id[:8]}.pdf"',
+        },
+    )
 
 
 @app.patch("/api/interviews/{session_id}")

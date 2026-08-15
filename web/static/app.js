@@ -292,6 +292,8 @@ async function openSession(sessionId) {
   state.currentMeta = data.meta;
   // 注意: 后端 JSON 字段是 snake_case（can_resume），不是 camelCase
   state.canResume = data.can_resume;
+  // B1: 记住当前会话 — 刷新页面后自动恢复（进行中的面试不丢题）
+  localStorage.setItem("lastSession", sessionId);
 
   // 进入会话视图: 隐藏新建面试面板，显示消息区
   $("#new-interview-panel").hidden = true;
@@ -511,6 +513,9 @@ function reportCard(r) {
       <span class="report-verdict">${r.verdict || ""}</span>
       ${r.verdict_reason ? `<div style="margin-top:8px;font-size:12.5px;color:#6b7280">${r.verdict_reason}</div>` : ""}
     </div>
+    <div class="report-actions">
+      <button class="btn-export-pdf" data-session="${state.currentSession || ""}" title="下载 PDF 报告（面试复盘/存档）">⬇ 导出 PDF</button>
+    </div>
     <div class="eval-dims">
       ${dimBar("正确性", r.avg_correctness)}
       ${dimBar("深度", r.avg_depth)}
@@ -542,6 +547,30 @@ function reportCard(r) {
           </div>`).join("")}
       </div>` : ""}`;
   return card;
+}
+
+// B3: 导出面试报告 PDF（后端 fpdf2 生成，浏览器直接下载文件）
+async function exportReportPdf() {
+  const sid = state.currentSession;
+  if (!sid) return;
+  try {
+    const resp = await fetch(`/api/interviews/${sid}/report/pdf`);
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.detail || "导出失败");
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `interview-report-${sid.slice(0, 8)}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    appendMessage({ role: "assistant", kind: "follow_up", content: "⚠️ 导出 PDF 失败：" + e.message });
+  }
 }
 
 function metricsCard(m) {
@@ -1085,21 +1114,122 @@ function renderStats(s) {
     </tr>`).join("");
 
   body.innerHTML = cards + `
+    <div class="trend-block">
+      <div class="trend-title">📈 历史得分趋势</div>
+      <canvas id="score-trend" width="520" height="200"></canvas>
+      <div class="trend-note"></div>
+    </div>
     <div class="stats-note">口径：token × 价格表估算（非账单）；仅统计已完成的面试</div>
     <table class="stats-table">
       <thead><tr><th>岗位</th><th>Token</th><th>成本</th><th>耗时</th><th>得分</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+  renderScoreTrend($("#score-trend"), s.per_session || []);
+}
+
+// B4: 历史得分趋势折线图（原生 Canvas，零依赖）— 按时间排序，画分数折线 + 均值虚线
+function renderScoreTrend(canvas, sessions) {
+  const ctx = canvas.getContext("2d");
+  const note = canvas.parentElement.querySelector(".trend-note");
+  const data = (sessions || [])
+    .filter((p) => p.overall_score != null)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+
+  if (data.length < 2) {
+    canvas.hidden = true;
+    if (note) note.textContent = "完成 ≥2 场面试后显示得分趋势";
+    return;
+  }
+  canvas.hidden = false;
+  if (note) note.textContent = `最近 ${data.length} 场面试的得分趋势（满分 10 分）`;
+
+  const W = canvas.width, H = canvas.height;
+  const padL = 28, padR = 12, padT = 16, padB = 22;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  ctx.clearRect(0, 0, W, H);
+
+  // 横向网格 + Y 轴刻度（0-10，每 2 分）
+  ctx.font = "10px sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (let s = 0; s <= 10; s += 2) {
+    const y = padT + ih - (s / 10) * ih;
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(W - padR, y);
+    ctx.stroke();
+    ctx.fillStyle = "#9aa3b2";
+    ctx.fillText(String(s), padL - 5, y);
+  }
+
+  const xs = data.map((_, i) => padL + (i / (data.length - 1)) * iw);
+  const ys = data.map((p) => padT + ih - (p.overall_score / 10) * ih);
+
+  // 分数折线
+  ctx.strokeStyle = "#3b82f6";
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  xs.forEach((x, i) => (i === 0 ? ctx.moveTo(x, ys[i]) : ctx.lineTo(x, ys[i])));
+  ctx.stroke();
+
+  // 数据点 + 分数标注
+  data.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(xs[i], ys[i], 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = "#3b82f6";
+    ctx.fill();
+    ctx.fillStyle = "#1f2937";
+    ctx.textAlign = "center";
+    ctx.fillText(String(p.overall_score), xs[i], ys[i] - 9);
+  });
+
+  // 均值虚线
+  const avg = data.reduce((a, p) => a + p.overall_score, 0) / data.length;
+  const ay = padT + ih - (avg / 10) * ih;
+  ctx.strokeStyle = "#f59e0b";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(padL, ay);
+  ctx.lineTo(W - padR, ay);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#d97706";
+  ctx.textAlign = "left";
+  ctx.fillText(`均值 ${avg.toFixed(1)}`, padL + 4, ay - 6);
+
+  // X 轴日期标签（YYYY-MM-DD）
+  ctx.fillStyle = "#9aa3b2";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  data.forEach((p, i) => {
+    const label = String(p.created_at || "").slice(0, 10);
+    ctx.fillText(label, xs[i], padT + ih + 5);
+  });
 }
 
 $("#stats-btn").addEventListener("click", openStats);
 $("#stats-close").addEventListener("click", closeStats);
+
+// B3: 报告导出 PDF（事件委托 — reportCard 是动态渲染的，直接绑定会失效）
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".btn-export-pdf");
+  if (btn) exportReportPdf();
+});
 
 function init() {
   // DeepSeek 式单视图: 始终进入聊天界面，侧边栏历史常驻，
   // 主区显示新建面试表单（未选中会话时）
   showChat();
   showNewInterview();
+  // B1: 刷新后自动恢复上次打开的会话（服务端 from_dict 磁盘重建 + 前端自动回跳）—
+  // 进行中的面试刷新页面不丢题、无需手动找回
+  const last = localStorage.getItem("lastSession");
+  if (last) {
+    openSession(last);
+  }
 }
 
 init();

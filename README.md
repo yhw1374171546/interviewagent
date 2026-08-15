@@ -176,6 +176,10 @@ agent/
 | **能力画像** | 跨会话聚合每个技能分类的强弱项与进步趋势（侧边栏「📊 能力画像」），画像弱项自动注入下一场面试的追问决策 |
 | **RAG 面经** | 内置 22 条面经 + [docs/knowledge](docs/knowledge/README.md) 知识库（397 条）+ LeetCode 英文面经（100 条，来自官方题解），轻量检索器（关键词/相似度，零向量库依赖），面试报告参考答案「检索增强生成」——优先给真实面经答案而非关键词要点 |
 | **Web Demo** | FastAPI + 原生 JS，DeepSeek 风格聊天界面，PDF 简历上传，历史会话置顶/重命名/删除，服务重启后断点续聊 |
+| **断点续聊（刷新不丢题）** | 面试中途刷新页面自动恢复：服务端磁盘快照重建 Interviewer（`from_dict`），前端 localStorage 记忆上次会话自动回跳，输入区恢复可用，继续作答不丢进度 |
+| **代码题自测** | LeetCode 式「运行」按钮：编辑器写完代码 → 跑测试用例看 pass/fail 明细（不进面试、不评分、不落库），提交时才进入 AI 评估 |
+| **报告导出 PDF** | 面试报告一键下载 PDF（fpdf2 + 中文字体自动探测）：总评/维度分/逐题详情/优劣势/改进建议/参考答案，离线可生成、可离线复测 |
+| **历史得分趋势图** | 用量统计页原生 Canvas 折线图：各场面试得分随时间走势 + 均值虚线，跨会话进步可直观对比 |
 | **Mock 降级** | 无 API Key 自动切换 MockLLMClient（确定性实现），Web 演示零配置可跑；LLMClient 抽象基类 + 多实现是适配器模式的体现 |
 
 ## 快速开始
@@ -298,11 +302,11 @@ eval→fix→re-eval 闭环后 MAE 下降 37%。
 ## 测试与覆盖率
 
 ```bash
-python -m pytest tests/ -q                    # 390 个测试，全离线可跑（Mock/FakeLLM）
+python -m pytest tests/ -q                    # 395 个测试，全离线可跑（Mock/FakeLLM）
 python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
 ```
 
-- **390 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
+- **395 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
 - **核心模块覆盖率 87%**（`interview/` 面试链路 + `core/` LLM 基础设施层），CI 以 80% 为门禁
 - 覆盖：评估器健壮性、记忆、可观测性、LLM-as-judge 评测、流式输出（SSE）、
   JD 解析、题库检索、题目生成、状态机、会话管理、输出校验、代码判题、重试熔断、

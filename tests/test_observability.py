@@ -101,3 +101,27 @@ class TestSessionMetrics:
             iv.to_dict(), MockLLMClient(), memory=None, llm_strong=strong,
         )
         assert restored.llm_strong is strong
+
+    def test_resume_after_restart_continues_interview(self):
+        """B1 断点恢复: 中途序列化 → from_dict 重建 → 继续答题不丢进度（刷新不丢题）"""
+        async def scenario():
+            iv = Interviewer(MockLLMClient(), total_questions=3)
+            await iv.start("Python 后端工程师")
+            await iv.next_question()
+            await iv.submit_answer("FastAPI 是基于 Starlette 的异步 Web 框架。")
+            snapshot = iv.to_dict()  # 磁盘持久化快照（服务重启前的等价物）
+
+            # 模拟服务重启: 全新 Interviewer 从快照重建，进度/回答不丢
+            restored = Interviewer.from_dict(snapshot, MockLLMClient())
+            assert len(restored.state.answers) == 1
+            assert restored.state.current_question_index == iv.state.current_question_index
+            assert not restored.state.is_finished  # 未结束 → Web can_resume=true
+
+            # 恢复后继续提交回答（刷新页面后的下一次作答）
+            turn = await restored.submit_answer("继续回答下一题。")
+            assert len(restored.state.answers) == 2
+            assert turn is not None
+            return restored
+
+        restored = run(scenario())
+        assert restored.state.phase.value in ("follow_up", "question", "finished")
