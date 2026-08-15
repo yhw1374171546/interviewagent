@@ -12,6 +12,7 @@ JD 解析出的技能 → 题库检索 → 匹配题目 → LLM 微调使之贴�
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -932,8 +933,13 @@ class QuestionBankRetriever:
             selected += self._fill_generic(total - len(selected), exclude | {q.id for q in selected})
 
         # 强制代码题（用户硬需求: 每场面试 ≥1 道）— 检索未命中 coding 时
-        # 从题库 coding 池补一道（优先中等难度），保证编程考察不缺席
+        # 从题库 coding 池补一道（优先 LeetCode 题 + 随机），保证编程考察不缺席
         selected = self._ensure_coding(selected, total, exclude)
+
+        # 代码题优先 LeetCode 题池（用户要求: 代码题出 LC 题，不要求岗位相关）
+        # — 检索命中的原创 coding 题（如 AI016 BPE）替换为随机 LC 题，
+        #   避免「每次面试都是同一道原创题」
+        selected = self._ensure_lc_coding(selected, exclude)
 
         return selected[:total]
 
@@ -950,10 +956,41 @@ class QuestionBankRetriever:
         pool = [q for q in self.bank if q.type == QuestionType.CODING and q.id not in exclude]
         if not pool:
             return selected
-        pool.sort(key=lambda q: (q.difficulty != 3, q.id))  # 优先中等难度
+        # 优先 LeetCode 题池（用户要求），否则原创 coding 题兜底
+        lc_pool = [q for q in pool if q.id.startswith("LC")]
+        if lc_pool:
+            pool = lc_pool
+        chosen = random.choice(pool)  # 随机: 不同场次不同代码题
         if len(selected) >= total:
-            return selected[:-1] + [pool[0]]
-        return selected + [pool[0]]
+            return selected[:-1] + [chosen]
+        return selected + [chosen]
+
+    def _ensure_lc_coding(
+        self,
+        selected: list[BankQuestion],
+        exclude_ids: set[str],
+    ) -> list[BankQuestion]:
+        """把选中的原创 coding 题全部替换为随机 LeetCode 题（保持类型与数量）"""
+        coding_idx = [
+            i for i, q in enumerate(selected)
+            if q.type == QuestionType.CODING and not q.id.startswith("LC")
+        ]
+        if not coding_idx:
+            return selected
+        exclude = set(exclude_ids) | {q.id for q in selected}
+        pool = [
+            q for q in self.bank
+            if q.type == QuestionType.CODING
+            and q.id.startswith("LC")
+            and q.id not in exclude
+        ]
+        if not pool:
+            return selected
+        random.shuffle(pool)  # 随机打乱，逐道替换
+        new_selected = list(selected)
+        for idx, replacement in zip(coding_idx, pool):
+            new_selected[idx] = replacement
+        return new_selected
 
     def _stratified_select(
         self,

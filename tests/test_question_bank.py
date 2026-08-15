@@ -69,6 +69,31 @@ class TestRetrieve:
         assert len(qs) == 5
         assert any(q.type == QuestionType.CODING for q in qs)
 
+    def test_coding_question_is_leetcode(self):
+        """代码题必须是 LeetCode 题（用户要求: 不要求岗位相关，LC 即可）—
+        原创 coding 题（如 AI016 BPE）会被替换为 LC 题"""
+        r = QuestionBankRetriever()
+        for skills in ([], ["python", "nlp", "算法"], ["agent", "llm"]):
+            qs = r.retrieve(skills, total=4)
+            coding = [q for q in qs if q.type == QuestionType.CODING]
+            assert coding, skills
+            assert all(q.id.startswith("LC") for q in coding), skills
+
+    def test_coding_question_randomized(self, monkeypatch):
+        """代码题随机: 从 LC 池打乱后取（同一 JD 多次检索可出不同题）"""
+        r = QuestionBankRetriever()
+        called = {}
+
+        def fake_shuffle(pool):
+            called["pool"] = list(pool)  # 记录候选池（不真正打乱）
+
+        monkeypatch.setattr("interview.question_bank.random.shuffle", fake_shuffle)
+        qs = r.retrieve(["python"], total=4)
+        coding = [q for q in qs if q.type == QuestionType.CODING]
+        assert coding and all(q.id.startswith("LC") for q in coding)
+        # 候选池 = 未选中的 LC 题池（排除已选），保证有多道可选 → 随机生效
+        assert len(called["pool"]) > 1
+
 
 class TestStratifiedSelect:
 
