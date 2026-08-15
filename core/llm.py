@@ -415,10 +415,16 @@ class OpenAIClient(LLMClient):
             from openai import AsyncOpenAI
         except ImportError:
             raise ImportError("未安装 openai SDK，请执行: pip install openai")
+        import httpx
+
         self.client = AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
             max_retries=0,  # 我们自己控制重试
+            # 禁用系统/环境代理（trust_env=False）— 本机系统代理（如 VPN 客户端）
+            # 对部分 API 域名的 CONNECT 隧道会失败，导致每次调用重试 3 次才放弃。
+            # 强制直连（实测直连延迟 ~0.3s），避免「解析/评估莫名慢 + 连接失败」
+            http_client=httpx.AsyncClient(trust_env=False),
         )
 
     async def chat(
@@ -550,10 +556,14 @@ class AnthropicClient(LLMClient):
             from anthropic import AsyncAnthropic
         except ImportError:
             raise ImportError("未安装 anthropic SDK，请执行: pip install anthropic")
+        import httpx
+
         self.client = AsyncAnthropic(
             api_key=self.api_key,
             base_url=self.base_url,
             max_retries=0,  # 我们自己控制重试
+            # 同 OpenAIClient: 禁用系统代理直连（系统代理对 API 域名 CONNECT 失败）
+            http_client=httpx.AsyncClient(trust_env=False),
         )
 
     async def chat(

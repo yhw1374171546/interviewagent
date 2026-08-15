@@ -7,7 +7,31 @@
 from __future__ import annotations
 
 import chromadb
-from chromadb.utils import embedding_functions
+from chromadb.api.types import Documents, EmbeddingFunction
+
+
+class _SharedEmbeddingFunction(EmbeddingFunction):
+    """
+    包装进程级共享 embedding 模型（core.embedding）— 与 JD 语义缓存共用
+    同一个 SentenceTransformer 实例，冷启动只加载一次模型（省 2-4s）。
+    """
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        self.model_name = model_name
+
+    def name(self) -> str:
+        # 与持久化 collection 的 embedding 类型一致（chromadb 按 name 校验配置，
+        # 不一致会抛 "Embedding function conflict"，导致已有 collection 打不开）
+        return "sentence_transformer"
+
+    def __call__(self, input: Documents):
+        from core.embedding import get_sentence_model
+
+        model = get_sentence_model(self.model_name)
+        if model is None:
+            raise RuntimeError("embedding 模型不可用")
+        vecs = model.encode(list(input))
+        return [v.tolist() for v in vecs]
 
 
 class VectorMemory:
@@ -36,10 +60,8 @@ class VectorMemory:
         """
         self.client = chromadb.PersistentClient(path=persist_dir)
 
-        # 使用本地 embedding 模型（隐私友好）
-        self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=embedding_model,
-        )
+        # 进程级共享 embedding（与 semantic_cache 共用同一模型实例）
+        self.ef = _SharedEmbeddingFunction(model_name=embedding_model)
 
         self.collection = self.client.get_or_create_collection(
             name=collection_name,

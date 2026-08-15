@@ -165,7 +165,9 @@ class JDParser:
         response = await self.llm.chat_with_retry(
             messages=[Message(role=Role.USER, content=prompt)],
             temperature=0.2,
-            max_tokens=2000,
+            # max_tokens 2000→800: 兜底输出只有 5 个 JSON 字段（~300 token），
+            # 2000 会让 DeepSeek 生成超长冗余内容（实测 jd_parse 单阶段 20s）
+            max_tokens=800,
         )
 
         content = response.content.strip()

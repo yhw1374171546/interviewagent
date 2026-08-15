@@ -75,8 +75,11 @@ class _Embedder:
     def _load(self):
         if self._model is None and not self._failed:
             try:
-                from sentence_transformers import SentenceTransformer
-                self._model = SentenceTransformer("all-MiniLM-L6-v2")
+                # 进程级共享模型（与 ChromaDB 记忆共用同一个实例，只加载一次）
+                from core.embedding import get_sentence_model
+                self._model = get_sentence_model("all-MiniLM-L6-v2")
+                if self._model is None:
+                    self._failed = True
             except Exception:
                 self._failed = True  # 模型不可用 → 缓存降级关闭
         return self._model
@@ -87,6 +90,17 @@ class _Embedder:
             return None
         vec = model.encode([text])[0]
         return vec.tolist()
+
+
+# 进程级共享嵌入器 — 多缓存实例复用同一个模型，只加载一次（省 2-3s 冷启动）
+_shared_embedder: _Embedder | None = None
+
+
+def _get_embedder() -> _Embedder:
+    global _shared_embedder
+    if _shared_embedder is None:
+        _shared_embedder = _Embedder()
+    return _shared_embedder
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -120,7 +134,7 @@ class JDSemanticCache:
         self.cache_path = Path(cache_path) if cache_path else DEFAULT_CACHE_PATH
         self.threshold = threshold
         self.max_entries = max_entries
-        self._embedder = _Embedder()
+        self._embedder = _get_embedder()  # 进程级共享嵌入器（模型只加载一次）
         self._entries: list[dict] = []  # [{jd_text, analysis, ts, vec}]
         self._load()
 

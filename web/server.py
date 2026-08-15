@@ -29,8 +29,17 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 from pathlib import Path
+
+# ── 模型加载离线模式（必须在任何 HF/sentence-transformers import 之前设置）──
+# embedding 模型走本地缓存加载，绝不触网：① 本机 HuggingFace 直连断，
+# 触网会重试卡死（历史事故）；② 离线加载更快（无网络超时等待）。
+# 缓存缺失时模型加载失败 → 记忆/缓存自动降级，不阻塞主流程。
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse

@@ -175,7 +175,9 @@ class QuestionGenerator:
             response = await self.llm.chat_with_retry(
                 messages=[Message(role=Role.USER, content=prompt)],
                 temperature=0.5,
-                max_tokens=3000,
+                # max_tokens 3000→1200: 微调输出是 ≤5 题的 [{id,question}]（~300 token），
+                # 3000 会诱导模型输出超长冗余（实测 question_gen+warmup 阶段 10s）
+                max_tokens=1200,
             )
 
             data = self._parse_json(response.content)
@@ -212,7 +214,8 @@ class QuestionGenerator:
             response = await self.llm.chat_with_retry(
                 messages=[Message(role=Role.USER, content=prompt)],
                 temperature=0.7,
-                max_tokens=3000,
+                # max_tokens 3000→1500: 补充出题输出为 needed 道题的 JSON（几百 token）
+                max_tokens=1500,
             )
 
             data = self._parse_json(response.content)
