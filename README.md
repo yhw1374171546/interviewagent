@@ -262,6 +262,8 @@ python -m uvicorn web.server:app --app-dir C:/Users/13741/Desktop/code/agent --h
 | 判题缺陷检出率（3 题 × 正确/缺陷实现） | 5/6 (83%) | 6/6 (100%) | 修复判题器不比较输出的真 bug + 补 recency 用例 |
 | 评估异常拦截（7 类边界输入） | 全部调 LLM | 4/7 确定性层 0 调用拦截 | LLM 调用节省 57% |
 | 单场面试 LLM 调用（3 题） | ≈7 次（全 LLM 方案） | 6 次（混合方案） | 出题/JD 解析主体全部规则化 |
+| RAG 检索（519 条数据源 × 8 查询） | 102.7 ms（每次全量重算） | **15.5 ms**（预计算索引复用） | **6.6× 加速**，命中数一致 |
+| 多题评估（8 题，并发 4） | 375 ms（串行） | **124 ms** | IO 并行（Semaphore 限流防 429） |
 
 ## 评估器评测 (LLM-as-judge)
 
@@ -296,11 +298,11 @@ eval→fix→re-eval 闭环后 MAE 下降 37%。
 ## 测试与覆盖率
 
 ```bash
-python -m pytest tests/ -q                    # 381 个测试，全离线可跑（Mock/FakeLLM）
+python -m pytest tests/ -q                    # 390 个测试，全离线可跑（Mock/FakeLLM）
 python -m pytest tests/ --cov=interview --cov=core --cov-fail-under=80
 ```
 
-- **381 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
+- **390 个测试**全部离线（Mock LLM / FakeLLM / 纯函数），CI 无真实 API 依赖
 - **核心模块覆盖率 87%**（`interview/` 面试链路 + `core/` LLM 基础设施层），CI 以 80% 为门禁
 - 覆盖：评估器健壮性、记忆、可观测性、LLM-as-judge 评测、流式输出（SSE）、
   JD 解析、题库检索、题目生成、状态机、会话管理、输出校验、代码判题、重试熔断、

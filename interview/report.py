@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import Counter
 from collections.abc import AsyncIterator
@@ -156,6 +157,9 @@ class ReportGenerator:
             interview_log=interview_log,
         )
 
+        # C3: 参考答按检索与报告 LLM 调用并行（互不依赖，检索在 LLM 等待期间完成）
+        refs_task = asyncio.create_task(self._build_fallback_reference_async(answers))
+
         try:
             response = await self.llm.chat_with_retry(
                 messages=[Message(role=Role.USER, content=prompt)],
@@ -165,6 +169,7 @@ class ReportGenerator:
             llm_report = self._parse_llm_report(response.content)
         except Exception:
             llm_report = {}
+        refs = await refs_task
 
         report.main_strengths = llm_report.get("main_strengths", ["基础扎实", "表达清晰", "学习能力强"])
         report.main_weaknesses = llm_report.get("main_weaknesses", ["深度有待提升", "架构经验不足"])
@@ -172,9 +177,9 @@ class ReportGenerator:
         report.verdict = llm_report.get("verdict", "建议待定")
         report.verdict_reason = llm_report.get("verdict_reason", "综合表现尚可，建议进一步考察。")
         report.reference_answers = llm_report.get("reference_answers", [])
-        # LLM 未返回参考答案（Mock/降级）→ 用题库期望要点兜底，保证总有"该怎么答"的提示
+        # LLM 未返回参考答案（Mock/降级）→ 用并行检索出的面经内容兜底，保证总有"该怎么答"的提示
         if not report.reference_answers:
-            report.reference_answers = self._build_fallback_reference(answers)
+            report.reference_answers = refs
 
         return report
 
@@ -220,6 +225,10 @@ class ReportGenerator:
             interview_log=interview_log,
         )
 
+        # C3: 参考答按检索与叙事流式并行 — create_task 让检索在 LLM 流式等待
+        # 期间完成，叙事结束取回结果，done 事件几乎零额外延迟
+        refs_task = asyncio.create_task(self._build_fallback_reference_async(answers))
+
         try:
             chunks: list[str] = []
             async for chunk in self.llm.stream_chat_with_retry(
@@ -237,8 +246,8 @@ class ReportGenerator:
             if not report.improvement_advice:
                 report.improvement_advice = "建议针对薄弱知识点做专题复习，多积累实际项目中的问题解决经验。"
 
-        # 参考答案：流式路径不调报告 JSON LLM，用题库期望要点兜底
-        report.reference_answers = self._build_fallback_reference(answers)
+        # 参考答案：流式路径不调报告 JSON LLM，用并行检索的面经内容兜底
+        report.reference_answers = await refs_task
 
         yield {"type": "done", "report": report}
 
@@ -395,18 +404,23 @@ class ReportGenerator:
             details.append(detail)
         return details
 
-    def _build_fallback_reference(self, answers: list[dict]) -> list[dict]:
+    async def _build_fallback_reference_async(self, answers: list[dict]) -> list[dict]:
         """
-        参考答案（RAG 增强）：优先检索面经库（真实面经内容），
-        检索不到再用题库期望要点兜底。零 LLM 依赖、零向量库依赖，离线可复现。
-        """
-        from .qa_bank import QaRetriever, get_all_qa_entries
+        参考答案（RAG 增强）— C3 并行版：逐题检索并发执行，复用共享检索器。
 
-        # RAG 全量数据源：内置 22 条面经 + docs/knowledge 知识库（数百条）
-        retriever = QaRetriever(get_all_qa_entries())
-        refs = []
-        for a in answers:
-            q = a.get("question")
+        优先检索面经库（真实面经内容，C2 预计算索引 + 进程级缓存复用），
+        检索不到再用题库期望要点兜底。零 LLM 依赖、零向量库依赖，离线可复现。
+
+        设计说明: 检索本身是 CPU 轻量集合运算（索引构建后亚毫秒级/题），
+        主要收益来自 ① 索引进程级复用（不每场报告重建 519 条）② 与 LLM
+        报告/叙事调用重叠执行（IO 等待期间完成，报告延迟 ≈ 0 增量）。
+        """
+        from .qa_bank import get_qa_retriever
+
+        retriever = get_qa_retriever()
+
+        async def _one(record: dict) -> dict | None:
+            q = record.get("question")
             q_text = q.question if isinstance(q, InterviewQuestion) else str(q)
             # 检索 query 拼技能标签（英文技能词与面经 tags 对齐，提升匹配）
             search_text = q_text
@@ -414,17 +428,18 @@ class ReportGenerator:
                 search_text = q_text + " " + " ".join(q.tags)
             hits = retriever.retrieve(search_text, top_k=1)
             if hits:
-                refs.append({
+                return {
                     "question": q_text,
                     "answer": hits[0]["answer"],
                     "source": "面经库",
-                })
-            else:
-                points = q.expected_points if isinstance(q, InterviewQuestion) else []
-                if not points:
-                    continue
-                refs.append({
-                    "question": q_text,
-                    "answer": "答题要点：" + "、".join(points) + "。",
-                })
-        return refs
+                }
+            points = q.expected_points if isinstance(q, InterviewQuestion) else []
+            if not points:
+                return None
+            return {
+                "question": q_text,
+                "answer": "答题要点：" + "、".join(points) + "。",
+            }
+
+        refs = await asyncio.gather(*(_one(a) for a in answers))
+        return [r for r in refs if r]

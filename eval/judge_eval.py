@@ -101,7 +101,8 @@ def follow_up_is_relevant(question_text: str, expected_points: list[str],
 # ── 评测执行 ───────────────────────────────────────────────────
 
 async def run_eval(llm, samples: list[dict], repeat: int, multi_judge: bool = False,
-                   calibrate: bool = False) -> dict:
+                   calibrate: bool = False, parallel: bool = True,
+                   concurrency: int = 4) -> dict:
     from interview.multi_judge import MultiJudge
 
     evaluator = AnswerEvaluator(
@@ -111,29 +112,48 @@ async def run_eval(llm, samples: list[dict], repeat: int, multi_judge: bool = Fa
     )
     # 项目已 Agent 化：追问由 FollowUpAgent 自主决策（评分仍用评估器）
     follow_up_agent = FollowUpAgent(llm)
-    results = []
 
     t0 = time.time()
-    total_calls = 0
 
-    for sample in samples:
-        scores = []
-        details = []
-        for _ in range(repeat):
-            ev = await evaluator.evaluate(sample["question"], sample["answer"])
-            scores.append(ev.total_score)
-            details.append(ev)
-            total_calls += 1
+    # ── 评估阶段: 串行（默认关闭，兼容旧行为） or 并行（C1: IO 并发，保序）──
+    if parallel:
+        # 全部 (样本 × 重复) 评估并发执行 — 真实 LLM 下耗时 ≈ 串行 / 并发数
+        items = [(s["question"], s["answer"]) for s in samples for _ in range(repeat)]
+        flat = await evaluator.evaluate_many(items, max_concurrency=concurrency)
+        per_sample = [flat[i * repeat:(i + 1) * repeat] for i in range(len(samples))]
+        total_calls = len(flat)
+        # 追问决策与评估无依赖交叉，同样并行（每样本 1 次）
+        decisions = await asyncio.gather(*(
+            follow_up_agent.decide(s["question"], s["answer"], dets[-1], [])
+            for s, dets in zip(samples, per_sample)
+        ))
+    else:
+        per_sample = []
+        decisions = []
+        total_calls = 0
+        for sample in samples:
+            details = []
+            for _ in range(repeat):
+                details.append(
+                    await evaluator.evaluate(sample["question"], sample["answer"])
+                )
+                total_calls += 1
+            decisions.append(
+                await follow_up_agent.decide(
+                    sample["question"], sample["answer"], details[-1], [],
+                )
+            )
+            per_sample.append(details)
 
+    results = []
+    for sample, details, decision in zip(samples, per_sample, decisions):
+        scores = [ev.total_score for ev in details]
         ev = details[-1]  # 取最后一次的评估做质量分析
         avg_score = statistics.mean(scores)
         std = statistics.pstdev(scores) if len(scores) > 1 else 0.0
 
         # 追问贴题率：FollowUpAgent 自主决策的追问（Agent 化后的真实追问来源）。
         # Agent 决定不追问（回答已充分）→ 追问文本置空，不计入贴题率统计。
-        decision = await follow_up_agent.decide(
-            sample["question"], sample["answer"], ev, [],
-        )
         agent_follow_up = (
             decision["question"] if decision["continue_follow_up"] and decision["question"]
             else ""
@@ -164,6 +184,8 @@ async def run_eval(llm, samples: list[dict], repeat: int, multi_judge: bool = Fa
         "elapsed_sec": round(time.time() - t0, 1),
         "total_calls": total_calls,
         "sample_count": len(results),
+        "parallel": parallel,
+        "concurrency": concurrency if parallel else 1,
     }
 
 
@@ -246,7 +268,8 @@ def render_report(run: dict, metrics: dict, repeat: int, mock: bool,
         "",
         f"> 生成时间: {date.today().isoformat()} | 模式: {'Mock（框架验证）' if mock else '真实 API'} | "
         f"评委: {judge_label} | 重复次数: {repeat} | 样本数: {run['sample_count']} | "
-        f"LLM 调用: {run['total_calls']} 次 | 耗时: {run['elapsed_sec']}s",
+        f"LLM 调用: {run['total_calls']} 次 | 耗时: {run['elapsed_sec']}s | "
+        f"评估并行: {'并发 ' + str(run.get('concurrency', 4)) if run.get('parallel') else '串行'}",
         "",
         "## 1. 评分一致性（同一回答评 N 次的标准差）",
         "",
@@ -307,6 +330,8 @@ async def main():
     parser.add_argument("--repeat", type=int, default=3, help="每样本重复评估次数（一致性）")
     parser.add_argument("--multi-judge", action="store_true", help="多评委仲裁评估（Before/After 对比用）")
     parser.add_argument("--calibrate", action="store_true", help="评分校准（按命中率纠正高低估）")
+    parser.add_argument("--no-parallel", action="store_true", help="关闭多题评估并行化（串行，兼容旧行为）")
+    parser.add_argument("--concurrency", type=int, default=4, help="并行评估并发上限（默认 4）")
     parser.add_argument("--no-report", action="store_true", help="不写 docs/eval_report.md")
     args = parser.parse_args()
 
@@ -325,7 +350,8 @@ async def main():
         )
 
     run = await run_eval(llm, samples, args.repeat, multi_judge=args.multi_judge,
-                         calibrate=args.calibrate)
+                         calibrate=args.calibrate, parallel=not args.no_parallel,
+                         concurrency=args.concurrency)
     metrics = compute_metrics(run)
     print_summary(metrics)
 

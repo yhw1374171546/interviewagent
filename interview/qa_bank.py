@@ -211,10 +211,26 @@ class QaRetriever:
 
     检索增强生成（RAG）的「检索」环节——安装 chromadb 后可平替为向量检索，
     接口保持一致。
+
+    性能（C2）: tokens/grams 预计算索引 — 每条的 tokenize/n-gram 只算一次，
+    查询仅做集合运算；全量 519 条数据源首次构建后跨查询复用，
+    比「每次查询对全量重算」提速约 5-10 倍。
     """
 
     def __init__(self, entries: list[QaEntry] | None = None):
         self.entries = entries or QA_ENTRIES
+        self._index: list[tuple[set[str], set[str]]] | None = None
+
+    def _ensure_index(self) -> None:
+        """惰性构建预计算索引: (tokens, grams) × 每条 entry（只算一次）"""
+        if self._index is None:
+            self._index = [
+                (
+                    _tokenize(e.question) | {t.lower() for t in e.tags},
+                    _char_ngrams(e.question) | _char_ngrams(" ".join(e.tags)),
+                )
+                for e in self.entries
+            ]
 
     def retrieve(self, query: str, top_k: int = 3) -> list[dict]:
         """返回与 query 最相关的面经条目（含 score），无相关时返回空列表"""
@@ -222,10 +238,11 @@ class QaRetriever:
         q_grams = _char_ngrams(query)
         if not q_tokens and not q_grams:
             return []
+        self._ensure_index()
 
         scored = []
-        for e in self.entries:
-            score = self._score(query, q_tokens, q_grams, e)
+        for (e_tokens, e_grams), e in zip(self._index, self.entries):
+            score = _score_indexed(q_tokens, q_grams, e_tokens, e_grams)
             if score >= MIN_SCORE:
                 scored.append((score, e))
 
@@ -236,17 +253,28 @@ class QaRetriever:
             for s, e in scored[:top_k]
         ]
 
-    def _score(self, query: str, q_tokens: set[str], q_grams: set[str], entry: QaEntry) -> float:
-        """打分 = 0.6 × 词 Jaccard + 0.4 × 字符 n-gram Jaccard"""
-        e_tokens = _tokenize(entry.question) | {t.lower() for t in entry.tags}
-        union_tokens = q_tokens | e_tokens
-        token_sim = len(q_tokens & e_tokens) / len(union_tokens) if union_tokens else 0.0
+    def stats(self) -> dict:
+        """索引状态（可观测性: 数据源规模/索引是否构建）"""
+        return {
+            "entries": len(self.entries),
+            "indexed": self._index is not None,
+        }
 
-        e_grams = _char_ngrams(entry.question) | _char_ngrams(" ".join(entry.tags))
-        union_grams = q_grams | e_grams
-        gram_sim = len(q_grams & e_grams) / len(union_grams) if union_grams else 0.0
 
-        return 0.6 * token_sim + 0.4 * gram_sim
+def _score_indexed(
+    q_tokens: set[str],
+    q_grams: set[str],
+    e_tokens: set[str],
+    e_grams: set[str],
+) -> float:
+    """打分 = 0.6 × 词 Jaccard + 0.4 × 字符 n-gram Jaccard（基于预计算索引）"""
+    union_tokens = q_tokens | e_tokens
+    token_sim = len(q_tokens & e_tokens) / len(union_tokens) if union_tokens else 0.0
+
+    union_grams = q_grams | e_grams
+    gram_sim = len(q_grams & e_grams) / len(union_grams) if union_grams else 0.0
+
+    return 0.6 * token_sim + 0.4 * gram_sim
 
 
 # ── Knowledge 知识库接入（RAG 数据源扩展） ─────────────────────
@@ -289,3 +317,20 @@ def get_all_qa_entries() -> list[QaEntry]:
     except Exception:
         pass  # LeetCode 面经缺失不阻塞主流程
     return entries
+
+
+# ── 共享检索器（C2 性能: 索引只构建一次，跨报告复用） ──────────
+
+_qa_retriever_cache: QaRetriever | None = None
+
+
+def get_qa_retriever() -> QaRetriever:
+    """全量数据源的共享检索器 — tokens/grams 索引只构建一次，多场报告复用。
+
+    数据源在进程生命周期内不变（内置 + knowledge + LC 都是静态导入），
+    缓存安全；缓存实例的 entries 列表在构建时快照，不受后续调用影响。
+    """
+    global _qa_retriever_cache
+    if _qa_retriever_cache is None:
+        _qa_retriever_cache = QaRetriever(get_all_qa_entries())
+    return _qa_retriever_cache

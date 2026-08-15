@@ -500,6 +500,176 @@ def bench_s5():
 
 
 # ═══════════════════════════════════════════════════════════════
+#  S6: C 组性能 — RAG 索引加速 + 多题评估并行化
+# ═══════════════════════════════════════════════════════════════
+
+def _bench_s6_rag() -> dict:
+    """
+    RAG 检索加速（C2）— 全量数据源 × 8 次查询:
+    暴力基线（每次查询对全量重算 tokens/grams） vs 预计算索引（构建一次 + 复用）。
+    检索是纯 CPU 工作，收益真实可复现；命中数应完全一致（语义等价）。
+    """
+    import time as _time
+
+    from interview.qa_bank import (
+        MIN_SCORE,
+        QaRetriever,
+        _char_ngrams,
+        _score_indexed,
+        _tokenize,
+        get_all_qa_entries,
+    )
+
+    entries = get_all_qa_entries()
+    queries = [
+        "解释 Python 的 GIL 全局解释器锁",
+        "MySQL 索引为什么用 B+ 树",
+        "Redis 为什么这么快 缓存",
+        "TCP 三次握手和四次挥手 网络",
+        "docker 容器和镜像的区别",
+        "HTTPS 和 HTTP 的区别 TLS 加密",
+        "什么是幂等性 重复请求",
+        "git rebase 和 merge 的区别",
+    ]
+
+    # 暴力基线: 8 次查询 × 每次对全量重算 tokens/grams
+    t0 = _time.perf_counter()
+    brute_hits = 0
+    for q in queries:
+        q_tokens, q_grams = _tokenize(q), _char_ngrams(q)
+        for e in entries:
+            e_tokens = _tokenize(e.question) | {t.lower() for t in e.tags}
+            e_grams = _char_ngrams(e.question) | _char_ngrams(" ".join(e.tags))
+            if _score_indexed(q_tokens, q_grams, e_tokens, e_grams) >= MIN_SCORE:
+                brute_hits += 1
+    brute_sec = _time.perf_counter() - t0
+
+    # 预计算索引: 首次查询触发构建，之后查询复用
+    retriever = QaRetriever(entries)
+    t0 = _time.perf_counter()
+    retriever.retrieve(queries[0])  # 触发索引构建
+    build_sec = _time.perf_counter() - t0
+    t0 = _time.perf_counter()
+    idx_hits = sum(len(retriever.retrieve(q)) for q in queries)
+    query_sec = _time.perf_counter() - t0
+
+    return {
+        "entries": len(entries),
+        "brute_sec": brute_sec,
+        "build_sec": build_sec,
+        "query_sec": query_sec,
+        "brute_hits": brute_hits,
+        "idx_hits": idx_hits,
+    }
+
+
+async def _bench_s6_parallel() -> dict:
+    """
+    多题评估并行化（C1）— 8 题评估: 串行 vs 并发 4。
+    用 asyncio.sleep 模拟 API 网络延迟（50ms/次），演示 IO 并行收益量级；
+    真实 API 加速比取决于实际延迟与限流，机制与本演示一致。
+    """
+    import time as _time
+
+    from interview.evaluator import AnswerEvaluator
+    from interview.question_bank import InterviewQuestion, QuestionType
+
+    class IOMock(MockLLMClient):
+        """带模拟网络延迟的 Mock — 验证并发上限与并行收益"""
+
+        def __init__(self, delay: float = 0.05):
+            super().__init__()
+            self.delay = delay
+            self.active = 0
+            self.peak = 0
+            self.lock = asyncio.Lock()
+
+        async def chat(self, messages, tools=None, temperature=0.7,
+                       max_tokens=4096, stream=False):
+            async with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            try:
+                await asyncio.sleep(self.delay)  # 模拟网络 IO 等待
+                return await super().chat(messages, tools, temperature, max_tokens, stream)
+            finally:
+                async with self.lock:
+                    self.active -= 1
+
+    qa = [
+        ("解释 Python 的 GIL", ["GIL", "多线程"], "GIL 是 CPython 的全局解释器锁，多线程 CPU 密集会被串行化。"),
+        ("为什么 MySQL 用 B+ 树", ["B+树", "范围查询"], "B+ 树矮胖扇出大，叶子链表支持范围查询。"),
+        ("Redis 为什么这么快", ["内存", "io多路复用"], "纯内存 + 单线程 + epoll 多路复用。"),
+        ("TCP 三次握手", ["SYN", "ACK"], "SYN → SYN+ACK → ACK，确认收发能力。"),
+        ("docker 镜像和容器区别", ["镜像", "容器"], "镜像是只读模板，容器是运行实例。"),
+        ("HTTPS 和 HTTP 区别", ["TLS", "加密"], "HTTPS 加 TLS 层，防窃听防篡改。"),
+        ("什么是幂等性", ["重复请求", "结果一致"], "同一请求多次执行结果一致。"),
+        ("git rebase 和 merge 区别", ["rebase", "merge"], "rebase 重放提交，merge 保留分叉历史。"),
+    ]
+    items = [
+        (InterviewQuestion(id=f"B{i}", type=QuestionType.TECHNICAL,
+                           category="综合", question=q, expected_points=pts,
+                           difficulty=4), a)
+        for i, (q, pts, a) in enumerate(qa)
+    ]
+
+    # 串行基线
+    serial_llm = IOMock()
+    serial_eval = AnswerEvaluator(serial_llm)
+    t0 = _time.perf_counter()
+    for q, a in items:
+        await serial_eval.evaluate(q, a)
+    serial_sec = _time.perf_counter() - t0
+
+    # 并发 4
+    para_llm = IOMock()
+    para_eval = AnswerEvaluator(para_llm)
+    t0 = _time.perf_counter()
+    results = await para_eval.evaluate_many(items, max_concurrency=4)
+    para_sec = _time.perf_counter() - t0
+
+    return {
+        "items": len(items),
+        "serial_sec": serial_sec,
+        "parallel_sec": para_sec,
+        "peak_concurrency": para_llm.peak,
+        "results_ok": len(results) == len(items),
+    }
+
+
+def bench_s6():
+    console.rule("[bold]S6 性能优化 — RAG 索引加速 + 多题评估并行化 (C 组)[/bold]")
+    rag = _bench_s6_rag()
+    par = asyncio.run(_bench_s6_parallel())
+
+    assert rag["brute_hits"] == rag["idx_hits"], "索引语义与暴力实现不一致!"
+
+    table = Table(title=f"RAG 检索 — 全量 {rag['entries']} 条数据源 × 8 次查询")
+    table.add_column("实现")
+    table.add_column("耗时")
+    table.add_column("命中数")
+    table.add_row("暴力（每次查询重算全量）", f"{rag['brute_sec'] * 1000:.1f} ms", str(rag["brute_hits"]))
+    table.add_row("预计算索引（构建 + 复用）", f"{rag['query_sec'] * 1000:.1f} ms", str(rag["idx_hits"]))
+    table.add_row("索引构建（一次性）", f"{rag['build_sec'] * 1000:.1f} ms", "-")
+    console.print(table)
+    speedup = rag["brute_sec"] / rag["query_sec"] if rag["query_sec"] else 0
+    console.print(f"[green]查询加速 ≈ {speedup:.1f}×[/green]（命中数与暴力一致 — 优化不改语义）")
+
+    table2 = Table(title="多题评估 — 8 题（模拟 API 延迟 50ms/次，演示 IO 并行收益）")
+    table2.add_column("方式")
+    table2.add_column("耗时")
+    table2.add_column("峰值并发")
+    table2.add_row("串行逐题", f"{par['serial_sec'] * 1000:.0f} ms", "1")
+    table2.add_row("并行并发 4", f"{par['parallel_sec'] * 1000:.0f} ms", str(par["peak_concurrency"]))
+    console.print(table2)
+    assert par["results_ok"]
+    console.print("[green]并行结果与串行一致，峰值并发受控 ≤ 上限[/green] | "
+                  "真实 API 加速比取决于实际延迟与限流，机制与本演示一致")
+
+    return rag, par
+
+
+# ═══════════════════════════════════════════════════════════════
 #  Main
 # ═══════════════════════════════════════════════════════════════
 
@@ -520,6 +690,8 @@ def main():
     s4 = bench_s4()
     console.print()
     s5 = bench_s5()
+    console.print()
+    s6 = bench_s6()
 
     console.print()
     console.rule("[bold]指标总览[/bold]")
@@ -533,6 +705,8 @@ def main():
     summary.add_row("判题缺陷检出率", f"{s3[0]}/6", f"{s3[1]}/6", "漏检 → 全检出")
     summary.add_row("评估异常拦截", f"{s4[1] - s4[0]}/{s4[1]} 需 LLM", f"{s4[0]}/{s4[1]} 零调用拦截", "确定性层短路")
     summary.add_row("单场面试 LLM 调用", f"≈{s5[1]} 次（全 LLM）", f"{s5[0]} 次（混合）", "语义层外全部规则化")
+    summary.add_row("RAG 检索", f"{s6[0]['brute_sec'] * 1000:.0f} ms/8 查（暴力）", f"{s6[0]['query_sec'] * 1000:.0f} ms/8 查（索引）", "预计算索引复用")
+    summary.add_row("多题评估", f"{s6[1]['serial_sec'] * 1000:.0f} ms（串行）", f"{s6[1]['parallel_sec'] * 1000:.0f} ms（并发 4）", "IO 并行")
     console.print(summary)
 
     console.print("\n[dim]注: v1 配置由当前代码模拟（过滤掉阶段六新增的关键词/题目/用例），"

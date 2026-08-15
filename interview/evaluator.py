@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections import Counter
@@ -457,6 +458,40 @@ class AnswerEvaluator:
             matched_points=matched,
             missed_points=missed,
         )
+
+    async def evaluate_many(
+        self,
+        items: list[tuple[InterviewQuestion, str]],
+        max_concurrency: int = 4,
+        history_context: str = "",
+        memory_hints: list[str] | None = None,
+    ) -> list[EvaluationResult]:
+        """
+        批量评估（C1 并行化）— 并发上限受控的多题评估。
+
+        面试主流程保持逐题串行（对话式流程依赖用户逐题回答），此接口服务
+        评测/批处理场景（judge_eval 30 样本评测等）：串行 30 次 → 并发 N 路，
+        真实 LLM 下耗时 ≈ 串行 / N（IO 并行）。
+
+        Args:
+            items: (question, answer) 列表 — 结果顺序与输入一致（gather 保序）
+            max_concurrency: 并发上限（DeepSeek API 并发过高触发 429，默认 4 安全）
+            history_context / memory_hints: 所有样本共用的轮内/跨会话上下文
+
+        注意: 多评委模式下每次 evaluate 内部还有双评委并行，外层并发 N
+        实际请求并发 ≈ 2N — 默认 4 时实际 8 路，仍远低于 API 限流阈值。
+        """
+        sem = asyncio.Semaphore(max_concurrency)
+
+        async def worker(question: InterviewQuestion, answer: str) -> EvaluationResult:
+            async with sem:
+                return await self.evaluate(
+                    question, answer,
+                    history_context=history_context,
+                    memory_hints=memory_hints,
+                )
+
+        return await asyncio.gather(*(worker(q, a) for q, a in items))
 
     async def _evaluate_code(
         self,
