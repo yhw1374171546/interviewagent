@@ -76,6 +76,11 @@ class AgentConfig:
     max_tokens: int = 4096
     verbose: bool = True           # 是否打印详细日志
 
+    # 循环检测（死循环防护）: 同工具/同参数重复调用时提前终止
+    loop_detection: bool = True
+    loop_same_tool_repeats: int = 3   # 同一工具连续调用次数阈值
+    loop_same_args_repeats: int = 2   # 同一工具+同参数重复次数阈值（强信号）
+
     # ReAct 模式下的 System Prompt 模板
     system_prompt: str = (
         "你是一个智能助手，能够使用工具来完成任务。"
@@ -117,6 +122,14 @@ class Agent:
         self._steps: list[AgentStep] = []
         self._total_tokens = 0
         self._tool_calls_count = 0
+
+        # 循环检测器（死循环防护）
+        from .loop_detector import LoopDetector
+
+        self._loop_detector = LoopDetector(
+            same_tool_repeats=self.config.loop_same_tool_repeats,
+            same_args_repeats=self.config.loop_same_args_repeats,
+        )
 
     # ── Public API ───────────────────────────────────────────
 
@@ -204,8 +217,9 @@ class Agent:
                 reasoning_content=response.reasoning_content,
             ))
 
-            # 3. Act — 执行工具调用
+            # 3. Act — 执行工具调用（含循环检测）
             observations = []
+            loop_hit = None
             for tc in response.tool_calls:
                 if self._tool_calls_count >= self.config.max_tool_calls:
                     logger.warning(f"达到最大工具调用次数 {self.config.max_tool_calls}")
@@ -214,6 +228,18 @@ class Agent:
                 result = await self._execute_tool(tc)
                 observations.append(result)
                 self._tool_calls_count += 1
+
+                # 循环检测: 同工具/同参数/同结果重复 → 提前终止
+                if self.config.loop_detection:
+                    status = self._loop_detector.record(
+                        tc.name, tc.arguments, observation=result,
+                    )
+                    if status["loop_detected"]:
+                        loop_hit = status
+                        logger.warning(
+                            f"[LoopDetector] {status['reason']}，提前终止循环"
+                        )
+                        break
 
             step.state = AgentState.ACTING
             step.action = json.dumps(
@@ -226,6 +252,22 @@ class Agent:
             if self.config.verbose:
                 for obs in observations:
                     logger.info(f"  🔧 工具返回: {obs[:120]}...")
+
+            if loop_hit:
+                # 检测到循环 → 不再让 LLM 继续，直接给出可解释的终止答案
+                if self.config.verbose:
+                    logger.info("  🛑 循环检测触发，停止工具调用")
+
+                return RunResult(
+                    answer=(
+                        f"任务未能完成：检测到工具调用循环"
+                        f"（{loop_hit['reason']}）。"
+                        f"已基于已有信息尝试给出答案，建议调整任务描述后重试。"
+                    ),
+                    steps=self._steps,
+                    total_tokens=self._total_tokens,
+                    tool_calls_count=self._tool_calls_count,
+                )
 
         # 达到最大步数 — 强制给出答案
         if self.config.verbose:
@@ -335,6 +377,7 @@ class Agent:
         self._steps = []
         self._total_tokens = 0
         self._tool_calls_count = 0
+        self._loop_detector.reset()
 
     # ── 属性 ─────────────────────────────────────────────────
 
