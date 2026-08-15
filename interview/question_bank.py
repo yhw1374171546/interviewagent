@@ -931,7 +931,29 @@ class QuestionBankRetriever:
         if len(selected) < total:
             selected += self._fill_generic(total - len(selected), exclude | {q.id for q in selected})
 
+        # 强制代码题（用户硬需求: 每场面试 ≥1 道）— 检索未命中 coding 时
+        # 从题库 coding 池补一道（优先中等难度），保证编程考察不缺席
+        selected = self._ensure_coding(selected, total, exclude)
+
         return selected[:total]
+
+    def _ensure_coding(
+        self,
+        selected: list[BankQuestion],
+        total: int,
+        exclude_ids: set[str],
+    ) -> list[BankQuestion]:
+        """确保结果集至少包含 1 道代码题（替换最后一道通用题保持总数）"""
+        if any(q.type == QuestionType.CODING for q in selected):
+            return selected
+        exclude = set(exclude_ids) | {q.id for q in selected}
+        pool = [q for q in self.bank if q.type == QuestionType.CODING and q.id not in exclude]
+        if not pool:
+            return selected
+        pool.sort(key=lambda q: (q.difficulty != 3, q.id))  # 优先中等难度
+        if len(selected) >= total:
+            return selected[:-1] + [pool[0]]
+        return selected + [pool[0]]
 
     def _stratified_select(
         self,

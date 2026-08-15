@@ -55,6 +55,20 @@ class TestRetrieve:
         qs = r.retrieve([], total=3)
         assert len(qs) == 3
 
+    def test_coding_question_guaranteed_even_without_match(self):
+        """强制代码题: 检索不到 coding 匹配时也从题库补 1 道（用户硬需求）"""
+        r = QuestionBankRetriever()
+        # 空技能 + 高分通用题 → 即使检索全不中 coding，结果也必须含代码题
+        for skills in ([], ["未知技能xyz"], ["python", "mysql"]):
+            qs = r.retrieve(skills, total=4)
+            assert any(q.type == QuestionType.CODING for q in qs), skills
+
+    def test_coding_guarantee_does_not_break_total(self):
+        r = QuestionBankRetriever()
+        qs = r.retrieve([], total=5)
+        assert len(qs) == 5
+        assert any(q.type == QuestionType.CODING for q in qs)
+
 
 class TestStratifiedSelect:
 

@@ -169,6 +169,10 @@ SKILL_TAXONOMY: dict[str, tuple[str, str, str]] = {
     "智能体":        ("AI Agent", "ai", "LLM技术"),
     "多智能体":      ("多智能体", "ai", "LLM技术"),
     "multi-agent":   ("多智能体", "ai", "LLM技术"),
+    # "agent" 子串补全: 短 JD（如仅「agent开发工程师」岗位名）也能提取到
+    # AI Agent 技能 → 检索出 agent 方向题（此前缺失 → JD 无技能 → 通用补齐）
+    "agent":         ("AI Agent", "ai", "LLM技术"),
+    "agentic":       ("AI Agent", "ai", "LLM技术"),
     "nlp":           ("NLP", "ai", "自然语言处理"),
     "机器学习":      ("机器学习", "ai", "机器学习"),
     "深度学习":      ("深度学习", "ai", "深度学习"),

@@ -62,6 +62,14 @@ class TestRuleExtraction:
         assert "java" not in skill_names
         assert "Django" in analysis.all_skills
 
+    def test_agent_short_jd_extracts_ai_agent_skill(self):
+        """短 JD（仅岗位名「agent开发工程师」）也能提取 AI Agent 技能 —
+        修复「JD 无技能 → 通用补齐 → 不出 agent 题」的问题"""
+        parser = JDParser(None)
+        analysis = run(parser.parse("agent开发工程师"))
+        assert "AI Agent" in analysis.all_skills
+        assert analysis.position == "agent开发工程师"
+
 
 class TestLLMFallback:
 
