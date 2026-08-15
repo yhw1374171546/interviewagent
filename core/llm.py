@@ -51,6 +51,10 @@ class Message:
     content: str
     tool_call_id: str | None = None
     tool_calls: list[dict] | None = None
+    # DeepSeek 推理模型（thinking mode）的思维链内容：
+    # 协议要求把 assistant 的 reasoning_content 原样回传，否则 400
+    # "The `reasoning_content` in the thinking mode must be passed back"
+    reasoning_content: str | None = None
 
 
 @dataclass
@@ -68,6 +72,8 @@ class LLMResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: str = "stop"
     usage: dict[str, int] = field(default_factory=dict)
+    # DeepSeek 推理模型的思维链（回传对话时需要原样带上）
+    reasoning_content: str | None = None
 
 
 @dataclass
@@ -437,10 +443,19 @@ class OpenAIClient(LLMClient):
                 for t in tools
             ]
 
-        formatted = [
-            {"role": m.role.value, "content": m.content}
-            for m in messages
-        ]
+        formatted = []
+        for m in messages:
+            item = {"role": m.role.value, "content": m.content}
+            # 工具调用链路的必要字段（此前丢失导致真实 API 400:
+            # "messages[2]: missing field tool_call_id"）
+            if m.role == Role.TOOL and m.tool_call_id:
+                item["tool_call_id"] = m.tool_call_id
+            if m.role == Role.ASSISTANT and m.tool_calls:
+                item["tool_calls"] = m.tool_calls
+            # DeepSeek 推理模型: 思维链必须原样回传（否则 400 thinking mode）
+            if m.role == Role.ASSISTANT and m.reasoning_content:
+                item["reasoning_content"] = m.reasoning_content
+            formatted.append(item)
 
         # Structured Output (OpenAI 原生支持)
         extra_kwargs = {}
@@ -488,6 +503,8 @@ class OpenAIClient(LLMClient):
                 "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
                 "completion_tokens": response.usage.completion_tokens if response.usage else 0,
             },
+            # DeepSeek 推理模型的思维链（OpenAI 兼容扩展字段）
+            reasoning_content=getattr(msg, "reasoning_content", None),
         )
 
     async def stream_chat(
@@ -553,6 +570,29 @@ class AnthropicClient(LLMClient):
         for m in messages:
             if m.role == Role.SYSTEM:
                 system_prompt += m.content + "\n"
+            elif m.role == Role.TOOL:
+                # Anthropic 工具结果用 tool_result 块（带 tool_use_id）
+                formatted.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": m.tool_call_id or "",
+                        "content": m.content,
+                    }],
+                })
+            elif m.role == Role.ASSISTANT and m.tool_calls:
+                # Anthropic assistant 工具调用用 tool_use 块
+                blocks = []
+                if m.content:
+                    blocks.append({"type": "text", "text": m.content})
+                for tc in m.tool_calls:
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": tc.get("function", {}).get("name", ""),
+                        "input": tc.get("function", {}).get("arguments", "{}"),
+                    })
+                formatted.append({"role": "assistant", "content": blocks})
             else:
                 formatted.append({"role": m.role.value, "content": m.content})
 

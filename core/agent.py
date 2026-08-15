@@ -164,11 +164,14 @@ class Agent:
                 logger.info(f"  💭 思考: {response.content[:80]}...")
 
             # 2. 判断: 是调用工具还是给出最终答案
-            if response.content:
-                self._messages.append(Message(role=Role.ASSISTANT, content=response.content))
-
             if not response.tool_calls:
-                # 无工具调用 — 对话结束
+                # 无工具调用 — 记录回答并结束
+                if response.content or response.reasoning_content:
+                    self._messages.append(Message(
+                        role=Role.ASSISTANT,
+                        content=response.content,
+                        reasoning_content=response.reasoning_content,
+                    ))
                 step.state = AgentState.FINISHED
                 self._steps.append(step)
 
@@ -181,6 +184,25 @@ class Agent:
                     total_tokens=self._total_tokens,
                     tool_calls_count=self._tool_calls_count,
                 )
+
+            # 有工具调用 → 追加一条 assistant 消息（content + tool_calls + reasoning，
+            # OpenAI 标准格式: 一次声明所有 tool_calls，_execute_tool 只追加 tool 结果）
+            self._messages.append(Message(
+                role=Role.ASSISTANT,
+                content=response.content,
+                tool_calls=[
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                        },
+                    }
+                    for tc in response.tool_calls
+                ],
+                reasoning_content=response.reasoning_content,
+            ))
 
             # 3. Act — 执行工具调用
             observations = []
@@ -253,13 +275,34 @@ class Agent:
             )
             yield step
 
-            if response.content:
-                self._messages.append(Message(role=Role.ASSISTANT, content=response.content))
-
             if not response.tool_calls:
+                if response.content or response.reasoning_content:
+                    self._messages.append(Message(
+                        role=Role.ASSISTANT,
+                        content=response.content,
+                        reasoning_content=response.reasoning_content,
+                    ))
                 step.state = AgentState.FINISHED
                 yield step
                 return
+
+            # 一次声明所有 tool_calls（含 reasoning 回传，DeepSeek 推理模型要求）
+            self._messages.append(Message(
+                role=Role.ASSISTANT,
+                content=response.content,
+                tool_calls=[
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                        },
+                    }
+                    for tc in response.tool_calls
+                ],
+                reasoning_content=response.reasoning_content,
+            ))
 
             for tc in response.tool_calls:
                 yield await self._execute_tool(tc)
@@ -267,7 +310,7 @@ class Agent:
     # ── Internal ─────────────────────────────────────────────
 
     async def _execute_tool(self, tool_call: ToolCall) -> str:
-        """执行单个工具调用"""
+        """执行单个工具调用，并把结果以 tool 消息追加（assistant tool_calls 已在主循环追加）"""
         logger.info(f"  🔨 调用工具: {tool_call.name}({tool_call.arguments})")
 
         try:
@@ -277,25 +320,11 @@ class Agent:
             result_str = f"错误: {type(e).__name__}: {e}"
             logger.error(f"  工具执行失败: {result_str}")
 
-        # 将工具结果追加到对话中
+        # OpenAI 工具调用协议: assistant(tool_calls) → tool(结果, tool_call_id)
         self._messages.append(Message(
             role=Role.TOOL,
             content=result_str,
             tool_call_id=tool_call.id,
-        ))
-
-        # 如果是 OpenAI 格式，需要追加 assistant tool_calls 消息
-        self._messages.append(Message(
-            role=Role.ASSISTANT,
-            content="",
-            tool_calls=[{
-                "id": tool_call.id,
-                "type": "function",
-                "function": {
-                    "name": tool_call.name,
-                    "arguments": json.dumps(tool_call.arguments, ensure_ascii=False),
-                },
-            }],
         ))
 
         return result_str

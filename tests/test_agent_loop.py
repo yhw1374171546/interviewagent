@@ -43,6 +43,63 @@ async def boom() -> str:
     raise RuntimeError("工具内部错误")
 
 
+# ── 真实 API 协议回归（tool_call_id/消息顺序/reasoning 回传）──
+# 这三个 bug 在 mock 下测不出来（mock 不校验消息格式），
+# 真实 DeepSeek 一跑就 400——必须用「协议正确性断言」锁住。
+
+class TestToolCallProtocol:
+
+    def _run_with_capture(self, responses):
+        """跑一次带工具调用的 Agent，返回最终消息序列"""
+
+        agent = Agent(_AgentLLM(responses), tools=[echo], config=AgentConfig(verbose=False))
+        run(agent.run("echo hi"))
+        return agent.history
+
+    def test_tool_result_follows_assistant_tool_calls(self):
+        """消息顺序: assistant(tool_calls) 必须在 tool 结果之前"""
+        from core.llm import Role
+
+        resp = [
+            LLMResponse(content="", tool_calls=[ToolCall(id="t1", name="echo", arguments={"text": "hi"})]),
+            LLMResponse(content="done"),
+        ]
+        msgs = self._run_with_capture(resp)
+        # 找到 assistant(tool_calls) 和 tool 的位置
+        assistant_idx = next(
+            i for i, m in enumerate(msgs)
+            if m.role == Role.ASSISTANT and m.tool_calls
+        )
+        tool_idx = next(i for i, m in enumerate(msgs) if m.role == Role.TOOL)
+        assert assistant_idx < tool_idx, "tool 结果必须跟在 assistant(tool_calls) 之后"
+
+    def test_tool_message_has_tool_call_id(self):
+        """tool 消息必须带 tool_call_id（否则真实 API 400 missing field）"""
+        from core.llm import Role
+
+        resp = [
+            LLMResponse(content="", tool_calls=[ToolCall(id="t1", name="echo", arguments={"text": "hi"})]),
+            LLMResponse(content="done"),
+        ]
+        msgs = self._run_with_capture(resp)
+        tool_msg = next(m for m in msgs if m.role == Role.TOOL)
+        assert tool_msg.tool_call_id == "t1"
+
+    def test_reasoning_content_preserved(self):
+        """DeepSeek 推理模型的 reasoning_content 必须原样回传（否则 400 thinking mode）"""
+        from core.llm import Role
+
+        resp = [
+            LLMResponse(content="let me think", reasoning_content="内部推理链"),
+            LLMResponse(content="done"),
+        ]
+        agent = Agent(_AgentLLM(resp), config=AgentConfig(verbose=False))
+        run(agent.run("hi"))
+        assistant_msgs = [m for m in agent.history if m.role == Role.ASSISTANT]
+        assert any(m.reasoning_content == "内部推理链" for m in assistant_msgs), \
+            "reasoning_content 应被保存并随 assistant 消息回传"
+
+
 # ── Agent.run ───────────────────────────────────────────────────
 
 class TestAgentRun:

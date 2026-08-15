@@ -853,6 +853,28 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 **经验**: ① 评测口径必须标注「mock vs 真实」「样本数」——同一指标不同口径数值不同（贴题率 mock 100% vs 真实 96.7%），简历写真实值 + 括号标注 mock 对照最稳；② 真实评测暴露的真实问题（高分档低估）比 mock 完美数字更有价值——它指向后续改进（评分校准/分档加权）；③ 评测脚本要能 `--mock` 先验框架再上真实 API，避免烧钱才发现脚本 bug；④ 真实评测耗时长（15 分钟级），放后台跑并归档 JSON，方便复跑对比。
 
+### 2026-08-15 10:45 | Agent 工具调用评测 + 修复 3 个真实 API 协议 bug
+
+**背景**: core/agent.py 的 ReAct Agent + 工具调用此前**零评测**——简历没有「工具调用正确率」证据。补上评测，结果真实 API 一跑就暴露 3 个 mock 测不出的协议 bug。
+
+**做了什么**:
+1. **新增 `eval/tool_use_eval.py`** — Agent 工具调用评测（8 个多步任务：单工具/双工具串联/条件分支/无需工具），5 个确定性工具（calculator/天气/股价/wiki/汇率），4 项指标：
+   - 工具选择正确率（用对工具）· 任务成功率（答案含期望关键字）· 端到端成功率 · 步数效率
+   - `--mock`（Stub 预设序列验证框架）与真实 DeepSeek 双模式
+2. **真实评测结果（DeepSeek v4 flash）**：工具选择 **100%**、任务成功率 **100%**、端到端 **100%**、步数效率 0.98
+3. **修复 3 个真实 API 协议 bug**（mock 全测不出，真实一跑就 400）：
+   - **① 丢 `tool_call_id`**：OpenAIClient 序列化只传 role/content，TOOL 消息缺 tool_call_id → 400 "missing field"
+   - **② 消息顺序反**：_execute_tool 先追加 tool 结果再追加 assistant(tool_calls) → 400 "must be a response to preceding message"
+   - **③ DeepSeek 推理模式 `reasoning_content` 未回传** → 400 "must be passed back"
+   - 修复：Message/LLMResponse 加 `reasoning_content` 字段；OpenAIClient 序列化补 tool_call_id/tool_calls/reasoning_content；agent 主循环重构为「一条 assistant(content+tool_calls+reasoning) → 逐条 tool 结果」（OpenAI 标准格式）；Anthropic 适配器同步修 tool_result/tool_use 块格式
+4. **回归测试 +17**（294 → 311）：协议正确性断言（tool 在 assistant 后、tool_call_id 存在、reasoning 保留）+ 工具评测框架 14 例（判定逻辑/任务集完整性/Stub 跑通）
+
+**为什么这么做**: 工具调用是 Agent 岗的核心能力，简历不能只有"框架"没有"正确率证据"。真实评测的价值远超数字本身——3 个协议 bug 说明**此前工具调用从未在真实 API 下跑通过**（mock 不校验消息格式），这比评测结果更值得写进面试叙事。
+
+**实测**: 311 测试全绿；ruff 零错误；benchmark/demo 无回归；真实评测 8 任务 × 多步 ≈ 30 次调用，分钟级完成。
+
+**经验**: ① 工具调用这类「依赖 API 协议细节」的功能，mock 永远测不出格式问题——真实 API 冒烟（哪怕 1 个任务）必须作为上线前门槛；② OpenAI 兼容协议 + 推理模型的扩展字段（reasoning_content）是真实集成才会踩的坑，Message 模型要预留扩展字段；③ 消息顺序（assistant tool_calls 在前、tool 结果在后）是 function calling 的基本协议，写进回归测试防止再犯。
+
 ---
 
 ## 技术决策速查表
