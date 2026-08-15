@@ -125,3 +125,37 @@ class TestSessionMetrics:
 
         restored = run(scenario())
         assert restored.state.phase.value in ("follow_up", "question", "finished")
+
+    def test_to_dict_is_json_serializable(self):
+        """快照必须能 json.dumps（Web persist 落盘依赖）— 防 set 序列化回归"""
+        import json
+
+        async def scenario():
+            iv = Interviewer(MockLLMClient(), total_questions=2, adaptive_enabled=True)
+            await iv.start("Python 后端工程师")
+            await iv.next_question()
+            await iv.submit_answer("FastAPI 是基于 Starlette 的异步 Web 框架。")
+            return iv
+
+        iv = run(scenario())
+        text = json.dumps(iv.to_dict(), ensure_ascii=False)  # 曾因 set 抛 TypeError
+        assert "adaptive_used_ids" in text
+
+    def test_from_dict_restores_adaptive_state(self):
+        """断点恢复后自适应状态不丢（set 经 JSON 序列化为 list 后正确还原）"""
+        import json
+
+        async def scenario():
+            iv = Interviewer(MockLLMClient(), total_questions=2, adaptive_enabled=True)
+            await iv.start("Python 后端工程师")
+            await iv.next_question()
+            await iv.submit_answer("FastAPI 是基于 Starlette 的异步 Web 框架。")
+            return iv
+
+        iv = run(scenario())
+        # 模拟磁盘往返（JSON 序列化 → 反序列化）
+        data = json.loads(json.dumps(iv.to_dict(), ensure_ascii=False))
+        restored = Interviewer.from_dict(data, MockLLMClient())
+        assert restored.state.adaptive_enabled == iv.state.adaptive_enabled
+        assert isinstance(restored.state.adaptive_used_ids, set)
+        assert restored.state.adaptive_used_ids == iv.state.adaptive_used_ids

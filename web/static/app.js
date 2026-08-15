@@ -818,6 +818,7 @@ async function skipQuestion() {
     });
     const data = await resp.json();
     removeLoadingIndicator(loading);
+    if (!resp.ok) throw new Error(data.detail || "跳过失败");
 
     if (data.report) {
       appendMessage({ role: "assistant", kind: "report", report: data.report });
@@ -828,6 +829,9 @@ async function skipQuestion() {
       await refreshSessionMessages();
       $("#chat-progress").textContent = data.progress || "";
     }
+  } catch (e) {
+    removeLoadingIndicator(loading);
+    appendMessage({ role: "assistant", kind: "follow_up", content: "⚠️ " + e.message });
   } finally {
     state.sending = false;
     $("#send-btn").disabled = !state.canResume;

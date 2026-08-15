@@ -60,6 +60,10 @@ def _jsonable(obj):
         return {k: _jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_jsonable(x) for x in obj]
+    if isinstance(obj, (set, frozenset)):
+        # set 不是 JSON 可序列化类型（如 InterviewState.adaptive_used_ids），
+        # 转 list（排序保证确定性）；from_dict 侧用 set() 还原
+        return sorted(_jsonable(x) for x in obj)
     return obj
 
 
@@ -855,6 +859,14 @@ class Interviewer:
         state.timings = s.get("timings", {})
         state.metrics = s.get("metrics", {})
         state.evaluate_count = s.get("evaluate_count", 0)
+
+        # 自适应难度（快照新格式；旧快照缺字段用默认 — 恢复后自适应关闭，行为不炸）
+        state.adaptive_enabled = s.get("adaptive_enabled", False)
+        state.adaptive_candidates = s.get("adaptive_candidates", {})
+        # set 经 _jsonable 序列化为 list，这里用 set() 还原为 set 类型（兼容两种格式）
+        used = s.get("adaptive_used_ids", [])
+        state.adaptive_used_ids = set(used)
+        state.adaptive_adjustments = s.get("adaptive_adjustments", [])
 
         # 当前题目
         cur_q = s.get("current_question")
