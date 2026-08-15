@@ -9,7 +9,9 @@
 |---------|---------|---------|
 | `benchmark.py` | 混合架构/判题/成本 | 规则覆盖 69.8%、题库匹配 92%、判题检出 6/6、调用次数 |
 | `judge_eval.py --mock` | 评估器评分质量 | MAE / Pearson / 一致性 / 追问贴题率 |
+| `judge_eval.py`（真实 API） | 评估器真实质量 | **真实 30 样本**: MAE 1.2 / Pearson 0.773 / std 0.22 / 贴题 97% |
 | `feature_eval.py` | 最近增强（Agent/RAG） | 追问贴题率 0→100%、参考答案 36→144 字、RAG 命中 72.5%（519 条面经） |
+| `feature_eval_real.py`（真实 API） | FollowUpAgent 真实贴题率 | **真实 30 样本: 贴题率 96.7%**（30 条追问 29 条贴题） |
 | 真实联调（README） | 性能/成本（真 API） | 评估 17.6→5.4s、成本 ≈¥0.02/场（8 题实测，复测日期 2026-08-14） |
 
 ## 二、评测三件套实测（全离线可复现）
@@ -56,6 +58,30 @@
 | 创建面试延迟 | 51s | **22.1s**（并行化） |
 | 单场面试成本（8 题真实 DeepSeek 实测） | — | **≈¥0.02**（2026-08 复测：输入 9.7K + 输出 11.2K tokens；早期口径 ¥0.049 为阶段十五 62K tokens 实测，随追问深度波动 ¥0.02-0.05） |
 
+### 5. 真实 LLM 评测（2026-08-14，DeepSeek v4 flash，30 样本）
+
+**背景**: 简历/报告里的「追问贴题率 100%」「MAE 0.94」多为 Mock 或早期小样本数据。
+B 组任务用真实 API 全量重测，补齐「真实 30 样本」证据，mock 与真实双口径并存。
+
+**judge_eval.py 真实 30 样本 × 3 次评估（90 次调用）**:
+
+| 指标 | Mock（框架验证） | **真实 LLM（本次）** | 说明 |
+|------|:---:|:---:|------|
+| 评分一致性 std | 0.0 | **0.22**（0% 不稳定） | 真实 LLM 有轻微波动，无 >0.5 不稳定样本 |
+| MAE | 1.31 | **1.2** | 真实比 mock 更准 |
+| Pearson | 0.929 | **0.773** | 真实 LLM 对高分档系统性低估（high 档 MAE 2.17） |
+| 追问贴题率 | 100% | **97%** | 30 条追问 29 条贴题 |
+
+> 分档误差：high 10 样本人工均分 8.6 vs LLM 均分 6.4（MAE 2.17，系统性低估高分回答）；
+> mid 5.1→4.9（0.62）、low 2.1→3.0（0.81）——真实 LLM 评分偏保守，区分高低分能力仍在。
+
+**feature_eval_real.py 真实 FollowUpAgent 追问贴题率（30 样本）**:
+- 非空追问 30 条，贴题 **29/30 = 96.7%**；Agent 决定继续追问比例 100%
+- 复现: `python eval/feature_eval_real.py`（需真实 key，约 7 分钟）
+
+**叙事口径**: 「追问贴题率」写 96.7-100%（真实 96.7% / mock 100%），简历不再写死 100%——
+真实数字 + 可复现脚本比完美数字可信。
+
 ## 三、指标设计审视（本轮修了什么、为什么）
 
 1. **judge_eval 追问贴题率 → 改测 FollowUpAgent**：项目已 Agent 化，追问来源是 Agent 而非评估器；
@@ -81,7 +107,9 @@
 ## 五、复现
 
 ```bash
-python eval/feature_eval.py      # 增强前后对比（本报告第 3 节）
-python eval/judge_eval.py --mock  # 评估器三指标（第 2 节）
-python benchmark.py              # 工程指标（第 2 节）
+python eval/feature_eval.py       # 增强前后对比（本报告第 3 节）
+python eval/judge_eval.py --mock   # 评估器三指标（第 2 节，离线）
+python eval/judge_eval.py          # 评估器真实 30 样本（第 5 节，需真实 key，约 15 分钟）
+python eval/feature_eval_real.py   # FollowUpAgent 真实贴题率（第 5 节，需真实 key，约 7 分钟）
+python benchmark.py                # 工程指标（第 2 节）
 ```

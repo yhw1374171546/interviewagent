@@ -225,10 +225,12 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
 # ── 报告输出 ───────────────────────────────────────────────────
 
 def render_report(run: dict, metrics: dict, repeat: int, mock: bool) -> str:
+    from datetime import date
+
     lines = [
         "# 评估器评测报告 (LLM-as-judge)",
         "",
-        f"> 生成时间: 2026-08-13 | 模式: {'Mock（框架验证）' if mock else '真实 API'} | "
+        f"> 生成时间: {date.today().isoformat()} | 模式: {'Mock（框架验证）' if mock else '真实 API'} | "
         f"重复次数: {repeat} | 样本数: {run['sample_count']} | "
         f"LLM 调用: {run['total_calls']} 次 | 耗时: {run['elapsed_sec']}s",
         "",
