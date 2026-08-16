@@ -103,6 +103,53 @@ DEEP_EVAL_PROMPT_V1 = """你是一位资深面试官。请分析面试者对以�
 }}
 ```"""
 
+# deep_eval v2 — 结构化思维链（CoT）版本（P0: 评估可解释性）
+# 与 v1 差异: ① 先逐步分析再下结论 ② 输出增加 analysis 字段（推理过程），
+# 配合 reasoning_content 落库，评分可解释、可追溯
+DEEP_EVAL_PROMPT_V2 = """你是一位资深面试官。请分析面试者对以下问题的回答质量。
+
+## 题目
+{question}
+
+## 期望回答要点
+{expected_points}
+
+## 面试者回答
+{answer}
+
+## 分析要求
+
+1. **逐步分析（先想清楚再下结论）**: 先逐条核对回答是否覆盖期望要点、是否深入原理、有无明显错误或漏洞，再据此判断深度/结构等级。不要凭「看起来不错」直接给分。
+
+2. **深度分析**: 回答是停留在表面还是深入了原理？举例: 如果问 GIL，只说"全局解释器锁"是表面，讲清楚为什么设计 GIL、什么时候是瓶颈、怎么绕过，才算有深度。
+
+3. **结构分析**: 回答是否有逻辑层次？（总分总？先结论后展开？还是想到哪说到哪？）
+
+4. **追问决策**:
+   - 回答很短/太浅 → "deepen"
+   - 有明显错误或漏洞 → "challenge"，生成一个具体的挑战性问题
+   - 回答很好 → "upgrade"，出一个更难的相关问题
+   - 过于抽象没有例子 → "example"
+   - 回答充分 → "move_on"
+
+5. **评价**: 用一句话总结，同时指出一个亮点和一个不足。
+
+## 输出格式
+请以 JSON 返回，**analysis 字段先写你的逐步分析过程**，再给出结论字段:
+```json
+{{
+  "analysis": "逐步分析: 要点覆盖情况、深度/结构判断依据、发现的错误或漏洞、追问价值判断",
+  "depth_level": "表面|较浅|适中|深入|非常深入",
+  "structure_level": "混乱|松散|一般|清晰|优秀",
+  "overall_comment": "一句话评价",
+  "strengths": ["亮点"],
+  "weaknesses": ["不足"],
+  "follow_up_decision": "deepen|challenge|upgrade|example|move_on",
+  "follow_up_question": "追问内容(move_on 时为空)",
+  "follow_up_reason": "追问原因"
+}}
+```"""
+
 # code_review — 无判题用例代码题的 AI 代码评审（interview/evaluator.py）
 CODE_REVIEW_PROMPT_V1 = """你是一位资深算法面试官。这是一次**代码评审**，请评审面试者提交的代码质量。
 这道题没有自动判题用例，需要你基于代码本身判断正确性。
@@ -248,8 +295,10 @@ ARBITER_PROMPT_V1 = """你是面试评分仲裁员。两位评委对同一份回
 不要因为回答"看起来不错"就给高分，也不要因为风格差异扣分。
 
 ## 输出格式
+请以 JSON 返回，**analysis 字段先写你的裁决依据**（结合两位评委的理由逐条判断），再给出结论:
 ```json
 {{
+  "analysis": "裁决依据: 两位评委分歧点分析、对要点的独立核对、最终倾向的理由",
   "depth_level": "表面|较浅|适中|深入|非常深入",
   "structure_level": "混乱|松散|一般|清晰|优秀",
   "overall_comment": "一句话裁决评价",
@@ -362,7 +411,7 @@ AGENT_RESEARCH_PROMPT_V1 = """你是一位专业的研究助理。你的任务�
 PROMPT_REGISTRY: dict[str, dict] = {
     "warmup":              {"versions": {"v1": WARMUP_PROMPT_V1},              "active": "v1"},
     "jd_fallback":         {"versions": {"v1": JD_FALLBACK_PROMPT_V1},         "active": "v1"},
-    "deep_eval":           {"versions": {"v1": DEEP_EVAL_PROMPT_V1},           "active": "v1"},
+    "deep_eval":           {"versions": {"v1": DEEP_EVAL_PROMPT_V1, "v2": DEEP_EVAL_PROMPT_V2}, "active": "v2"},
     "code_review":         {"versions": {"v1": CODE_REVIEW_PROMPT_V1},         "active": "v1"},
     "follow_up_agent":     {"versions": {"v1": FOLLOW_UP_AGENT_PROMPT_V1},     "active": "v1"},
     "final_report":        {"versions": {"v1": FINAL_REPORT_PROMPT_V1},        "active": "v1"},

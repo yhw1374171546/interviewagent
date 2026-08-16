@@ -226,6 +226,8 @@ def evaluation_to_dict(ev) -> dict | None:
         "matched_points": ev.matched_points,
         "missed_points": ev.missed_points,
         "code_judge": ev.code_judge,  # 编程题判题结果（非编程题为 None）
+        "analysis": ev.analysis,          # LLM 结构化思维链分析（评估可解释性）
+        "reasoning_text": ev.reasoning_text,  # DeepSeek 原始思维链（落库追溯）
     }
 
 

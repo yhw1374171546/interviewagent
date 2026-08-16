@@ -100,6 +100,13 @@ class EvaluationResult:
     # {"passed", "total_tests", "passed_tests", "failed_tests", "errors", "details"}
     code_judge: dict | None = None
 
+    # 评估可解释性（P0 思维链）:
+    # analysis — LLM 结构化逐步分析（prompt 输出格式的 analysis 字段）
+    # reasoning_text — DeepSeek 推理模型的原始思维链（reasoning_content，
+    #   仅单评委路径保存；多评委路径合并保存在 meta，此处取最终采用评委的）
+    analysis: str = ""
+    reasoning_text: str = ""
+
     @property
     def total_score(self) -> float:
         return round(
@@ -291,6 +298,7 @@ class AnswerEvaluator:
         )
 
         # ── 阶段 2: LLM 深度评估（单评委 or 多评委仲裁）──
+        reasoning_text = ""
         if self.llm:
             if self.multi_judge is not None:
                 # 多评委: 双评委并行 + 分歧仲裁（解决单评委评分偏差）
@@ -299,6 +307,7 @@ class AnswerEvaluator:
                     history_context=history_context,
                     memory_hints=memory_hints,
                 )
+                reasoning_text = judge_meta.get("reasoning", "")
                 if judge_meta.get("disagreement") == "high":
                     llm_data = dict(llm_data)
                     llm_data["overall_comment"] = (
@@ -306,7 +315,7 @@ class AnswerEvaluator:
                         + llm_data.get("overall_comment", "")
                     )
             else:
-                depth, structure, llm_data = await self._llm_deep_eval(
+                depth, structure, llm_data, reasoning_text = await self._llm_deep_eval(
                     question, answer,
                     history_context=history_context,
                     memory_hints=memory_hints,
@@ -390,6 +399,8 @@ class AnswerEvaluator:
             keyword_match_rate=match_rate if match_rate is not None else 0.5,
             matched_points=matched,
             missed_points=missed,
+            analysis=llm_data.get("analysis", ""),
+            reasoning_text=reasoning_text,
         )
 
     async def evaluate_many(
@@ -759,8 +770,14 @@ class AnswerEvaluator:
         answer: str,
         history_context: str = "",
         memory_hints: list[str] | None = None,
-    ) -> tuple[int, int, dict]:
-        """LLM 深度评估（只评估机器做不了的）"""
+    ) -> tuple[int, int, dict, str]:
+        """LLM 深度评估（只评估机器做不了的）
+
+        Returns:
+            (depth, structure, llm_data, reasoning_content)
+            - llm_data: 评估 JSON（含 analysis 结构化思维链字段）
+            - reasoning_content: DeepSeek 推理模型的原始思维链（可解释性）
+        """
         prompt = active_prompt("deep_eval").format(
             question=question.question,
             expected_points=", ".join(question.expected_points or ["无"]),
@@ -809,11 +826,16 @@ class AnswerEvaluator:
                     f"LLM 评估输出不可解析，已降级: {response.content[:200]!r}"
                 )
 
-            return depth_score, struct_score, data
+            return (
+                depth_score,
+                struct_score,
+                data,
+                (response.reasoning_content or ""),
+            )
 
         except Exception as e:
             logger.warning(f"LLM 深度评估失败（降级到规则引擎）: {type(e).__name__}: {e}")
-            return 5, 5, {}
+            return 5, 5, {}, ""
 
     def _parse_json(self, text: str) -> dict:
         """从 LLM 输出中提取 JSON"""

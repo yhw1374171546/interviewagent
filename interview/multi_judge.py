@@ -101,8 +101,13 @@ class MultiJudge:
 
     async def _run_judge(
         self, prompt: str, temperature: float, max_tokens: int = 2000,
-    ) -> dict:
-        """单个评委评估，返回解析后的 JSON（失败返回 {}）"""
+    ) -> tuple[dict, str]:
+        """单个评委评估
+
+        Returns:
+            (解析后的 JSON, reasoning_content) — 失败返回 ({}, "")
+            reasoning_content 是 DeepSeek 思维链，供可解释性落库
+        """
         from core.llm import Message, Role
 
         try:
@@ -111,9 +116,9 @@ class MultiJudge:
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-            return _parse_json(response.content)
+            return _parse_json(response.content), (response.reasoning_content or "")
         except Exception:
-            return {}
+            return {}, ""
 
     async def evaluate(
         self,
@@ -133,8 +138,8 @@ class MultiJudge:
         """
         prompt = _format_prompt(question, answer, history_context, memory_hints)
 
-        # 双评委并行（严格 + 宽容视角）
-        judge_a, judge_b = await asyncio.gather(
+        # 双评委并行（严格 + 宽容视角）— 每个评委返回 (数据, 思维链)
+        (judge_a, reasoning_a), (judge_b, reasoning_b) = await asyncio.gather(
             self._run_judge(prompt, self.temperature_a),
             self._run_judge(prompt, self.temperature_b),
         )
@@ -146,6 +151,8 @@ class MultiJudge:
             "judge_a_structure": _score(judge_a)[1] if judge_a else 0,
             "judge_b_structure": _score(judge_b)[1] if judge_b else 0,
             "arbitrated": False,
+            # 最终采用评委的思维链（可解释性: 分歧小时取宽容评委 B 的）
+            "reasoning": reasoning_b or reasoning_a,
         }
 
         # 任一评委失败 → 降级为另一个评委的结果（不中断）

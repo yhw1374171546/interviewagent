@@ -896,3 +896,26 @@ body {
   color: #9aa3b2;
   margin-top: 5px;
 }
+
+/* ── P0: 评估推理过程（可折叠） ── */
+
+.eval-analysis {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.eval-analysis summary {
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: #2563eb;
+  cursor: pointer;
+  user-select: none;
+}
+.eval-analysis-body {
+  padding: 0 12px 10px;
+  font-size: 12.5px;
+  color: #4b5563;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}

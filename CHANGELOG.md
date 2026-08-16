@@ -1135,6 +1135,22 @@ INIT → WARMUP → QUESTION → WAIT_ANSWER → EVALUATE
 
 **经验**: ① Prompt 集中管理的价值不在「换个文件放」，而在「版本化 + 渲染可测」——占位符不一致会在测试里炸出来而不是上线后 400；② 真实 SDK 客户端也能零网络测透——fake client 注入验证的是**我们自己的序列化/解析逻辑**（400 的根因），这正是覆盖率测不到的地方；③ 新功能引入新依赖时，**requirements.txt 必须同步**（fpdf2 漏了容器里 PDF 导出就挂）——「本机跑通 ≠ 部署跑通」，Docker 是这条检查清单的最后一环；④ 无法实测的能力宁可如实标注「静态校验」也不假装验证过，这是项目的诚实底线。
 
+### 2026-08-15 20:10 | P0 评估可解释性：结构化思维链（CoT）+ reasoning_content 落库
+
+**背景**: 用户复盘项目不足时点名「思维链设计」——评估器让 LLM 直接输出 JSON 分数，没有推理过程，评分不可解释；DeepSeek 返回的 reasoning_content 拿到了却没保存。多评委仲裁（std 0.22→0.14）本质是在补救「无 CoT 带来的随机性」而非用 CoT 让评分更稳。
+
+**做了什么**:
+1. **`deep_eval` prompt 升 v2（结构化 CoT）** — 输出格式增加 `analysis` 字段：要求 LLM「先逐步分析（要点覆盖/深度/错误/追问价值）再给结论」；演示了 D1 版本化 A/B 的实际价值（v1 无 analysis / v2 有，`set_prompt_version("deep_eval","v1")` 可回滚，测试锁住）
+2. **`ARBITER_PROMPT` 同步加 analysis** — 仲裁员也先写裁决依据再给结论
+3. **reasoning_content 落库** — `_llm_deep_eval` 返回 `(depth, struct, data, reasoning)`；`multi_judge._run_judge` 返回 `(data, reasoning)`，meta 携带最终采用评委的思维链；`EvaluationResult` 新增 `analysis`/`reasoning_text` 字段，经 `evaluation_to_dict` 透传到 Web
+4. **前端可解释性展示** — 评估卡片新增可折叠「🤔 推理过程（评估依据）」展示 analysis（原始 reasoning 只落库不展示，避免思维链不稳定/隐私）
+
+**为什么这么做**: 「评分为什么是这个分」是 LLM-as-judge 的核心信任问题——关键词分客观可解释，但 LLM 深度分是黑盒。CoT 让深度分也有推理链：关键词客观分 → CoT 推理分（可解释）→ 多评委压随机性 → 校准压偏差，四层评分体系叙事完整。
+
+**实测**: 450 测试全绿（+8：单评委 analysis/reasoning 保存、多评委 meta 透传、异常降级为空、deep_eval v2 默认 + A/B 回滚）；ruff 零错误；`node --check` 通过。
+
+**经验**: ① 思维链的价值不只是「更准」，更是**可解释性**——面试官问「LLM 评分可信吗」时能展示分析链，比口头保证有说服力；② DeepSeek 推理模型的 reasoning_content 是免费的可解释性资产，之前拿到就丢了是浪费——任何 LLM 调用点都应该问「这个响应要不要留推理链」；③ CoT 是 prompt 层改动，用 D1 的版本化 A/B 落地零风险——v2 效果不好一键回滚 v1，这就是「prompt 集中管理」存在的意义。
+
 ---
 
 ## 技术决策速查表

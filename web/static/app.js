@@ -451,7 +451,12 @@ function evalCard(ev) {
     <div class="eval-tags">
       ${(ev.strengths || []).map((s) => `<span class="eval-tag">👍 ${s}</span>`).join("")}
       ${(ev.weaknesses || []).map((w) => `<span class="eval-tag weak">⚠️ ${w}</span>`).join("")}
-    </div>`;
+    </div>
+    ${ev.analysis ? `
+      <details class="eval-analysis">
+        <summary>🤔 推理过程（评估依据）</summary>
+        <div class="eval-analysis-body">${esc(ev.analysis)}</div>
+      </details>` : ""}`;
   return card;
 }
 
