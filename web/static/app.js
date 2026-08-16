@@ -358,6 +358,11 @@ function appendMessage(m, animate = false) {
       );
       break;
 
+    case "notice":
+      // 轻提示气泡（流式评估的过程信息：关键词分析/思考过程）
+      wrapper.appendChild(assistantBubble(m.content));
+      break;
+
     case "report":
       wrapper.appendChild(reportCard(m.report));
       break;
@@ -764,10 +769,81 @@ async function sendAnswer() {
   appendMessage({ role: "user", kind: "answer", content: text });
   $("#send-btn").disabled = true;
 
-  await postAnswer(text);
+  // 优先流式评估（先看思考过程再出评分）；失败自动回退普通 POST
+  await postAnswerStream(text);
 }
 
-// 统一提交回答（文字或代码都走 /answer 端点）
+// 流式提交回答（SSE）— 关键词分析 → LLM 思考过程 → 评分/追问/下一题
+async function postAnswerStream(answer) {
+  try {
+    const resp = await fetch(`/api/interviews/${state.currentSession}/answer/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer }),
+    });
+    if (!resp.ok || !resp.body) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.detail || "流式评估不可用");
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        const raw = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        handleEvalStreamEvent(raw);
+      }
+    }
+  } catch (e) {
+    // 流式不可用/失败 → 回退普通 POST（兼容旧后端）
+    appendMessage({ role: "assistant", kind: "notice", content: "⚠️ 流式评估不可用，改用普通模式：" + e.message });
+    await postAnswer(answer);
+  } finally {
+    state.sending = false;
+    $("#send-btn").disabled = !state.canResume;
+    if (state.canResume) answerInput.focus();
+  }
+}
+
+// SSE 事件解析（event: xxx\ndata: {...}）
+function handleEvalStreamEvent(raw) {
+  let event = "";
+  let dataStr = "";
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event: ")) event = line.slice(7);
+    else if (line.startsWith("data: ")) dataStr = line.slice(6);
+  }
+  if (!dataStr) return;
+  let data;
+  try { data = JSON.parse(dataStr); } catch { return; }
+
+  if (event === "analyzing") {
+    // 关键词层客观分析（秒出）— 评估第一屏
+    const kw = data;
+    const rate = Math.round((kw.match_rate || 0) * 100);
+    const missedText = (kw.missed || []).length
+      ? "未命中: " + kw.missed.slice(0, 2).join("、")
+      : "要点全覆盖";
+    appendMessage({
+      role: "assistant", kind: "notice",
+      content: `📊 关键词分析：命中率 ${rate}% · 已命中 ${(kw.matched || []).length} 点 · ${missedText}`,
+    });
+  } else if (event === "analysis") {
+    // LLM 结构化思维链（打字机逐字展示思考过程）
+    appendMessage({ role: "assistant", kind: "notice", content: "🤔 " + data.text }, true);
+  } else if (event === "evaluation") {
+    handleAnswerResponse(data);
+  } else if (event === "error") {
+    appendMessage({ role: "assistant", kind: "follow_up", content: "⚠️ 评估失败：" + (data.detail || "未知错误") });
+  }
+}
+
+// 统一提交回答（文字或代码都走 /answer 端点）— 降级路径（流式不可用时）
 async function postAnswer(answer) {
   const loading = addLoadingIndicator();
   try {
@@ -968,7 +1044,7 @@ async function submitCode() {
   appendMessage({ role: "user", kind: "code", content: code });
   $("#send-btn").disabled = true;
 
-  await postAnswer(code);
+  await postAnswerStream(code);
 }
 
 /* ═══════════════ 能力画像 ═══════════════ */

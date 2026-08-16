@@ -531,12 +531,41 @@ class Interviewer:
             self.evaluator if not degrade_eval
             else self._rule_only_evaluator()
         )
-        evaluation = await evaluator.evaluate(
-            question,
-            answer,
-            history_context=history_context,
-            memory_hints=memory_hints,
-        )
+
+        # 关键词层先行（0 LLM 调用，秒级）— ① 供 SSE 流式先展示命中/未命中
+        # ② 追问决策可不依赖 LLM 评语提前并行执行
+        kw = evaluator.keyword_analysis(question, answer)
+
+        if kw["boundary"] or degrade_eval:
+            # 边界输入（空/超短/垃圾/复读）或成本降级 → 串行（decide 由评估器兜底）
+            evaluation = await evaluator.evaluate(
+                question, answer,
+                history_context=history_context,
+                memory_hints=memory_hints,
+            )
+            decision = None
+        else:
+            # 并行: LLM 深度评估 ∥ 追问 Agent 决策（总等待 ≈ max 而非 sum）
+            async def _parallel_decide():
+                kw_eval = EvaluationResult(
+                    keyword_match_rate=kw["match_rate"],
+                    overall_comment=kw["comment_hint"],
+                    matched_points=kw["matched"],
+                    missed_points=kw["missed"],
+                )
+                return await self.follow_up_agent.decide(
+                    question, answer, kw_eval,
+                    asked_follow_ups=self._asked_follow_ups(question),
+                )
+
+            evaluation, decision = await asyncio.gather(
+                evaluator.evaluate(
+                    question, answer,
+                    history_context=history_context,
+                    memory_hints=memory_hints,
+                ),
+                _parallel_decide(),
+            )
         self.state.timings["evaluate"] = round(
             self.state.timings.get("evaluate", 0) + time.perf_counter() - t0, 2,
         )
@@ -602,32 +631,10 @@ class Interviewer:
 
         # 追问决策（混合 Agent）：
         # 1. 确定性边界短路（超短/垃圾/复读）→ 评估器已明确判断需追问，直接保留（不覆盖）
-        # 2. 正常评估 → FollowUpAgent 自主决策；Agent 不可用 → 回退评估器 5 分类
-        boundary_reasons = ("回答过短", "检测到无效输入", "检测到题目复读")
-        if evaluation.follow_up_reason in boundary_reasons:
-            should_follow_up = (
-                evaluation.follow_up_decision != FollowUpDecision.MOVE_ON
-                and self.state.current_follow_up_count < self.max_follow_ups
-            )
-            follow_up_q = evaluation.follow_up_question
-        else:
-            decision = await self.follow_up_agent.decide(
-                question, answer, evaluation,
-                asked_follow_ups=self._asked_follow_ups(question),
-            )
-            if decision["continue_follow_up"] is None:
-                # Agent 不可用 → 回退评估器 5 分类（不中断面试）
-                should_follow_up = (
-                    evaluation.follow_up_decision != FollowUpDecision.MOVE_ON
-                    and self.state.current_follow_up_count < self.max_follow_ups
-                )
-                follow_up_q = evaluation.follow_up_question
-            elif decision["continue_follow_up"] and self.state.current_follow_up_count < self.max_follow_ups:
-                should_follow_up = True
-                follow_up_q = decision["question"] or evaluation.follow_up_question
-            else:
-                should_follow_up = False
-                follow_up_q = ""
+        # 2. 正常评估 → FollowUpAgent 自主决策（已与评估并行）；Agent 不可用 → 回退评估器
+        should_follow_up, follow_up_q = self._resolve_follow_up(
+            question, evaluation, decision,
+        )
 
         if should_follow_up:
             self.state.current_follow_up_count += 1
@@ -658,6 +665,212 @@ class Interviewer:
             is_finished=next_turn.is_finished,
             report=next_turn.report,
         )
+
+    def _resolve_follow_up(
+        self,
+        question: InterviewQuestion,
+        evaluation: EvaluationResult,
+        decision: dict | None,
+    ) -> tuple[bool, str]:
+        """
+        追问决策解析（混合 Agent）。
+
+        Args:
+            evaluation: 完整评估结果
+            decision: FollowUpAgent 决策（已并行或 None=未执行/不可用）
+
+        Returns:
+            (should_follow_up, follow_up_question)
+        """
+        boundary_reasons = ("回答过短", "检测到无效输入", "检测到题目复读")
+        if evaluation.follow_up_reason in boundary_reasons:
+            # 确定性边界 → 评估器已明确判断需追问，直接保留（不覆盖）
+            should = (
+                evaluation.follow_up_decision != FollowUpDecision.MOVE_ON
+                and self.state.current_follow_up_count < self.max_follow_ups
+            )
+            return should, evaluation.follow_up_question
+        if decision is None or decision.get("continue_follow_up") is None:
+            # Agent 不可用（LLM 失败/未并行）→ 回退评估器 5 分类（不中断面试）
+            should = (
+                evaluation.follow_up_decision != FollowUpDecision.MOVE_ON
+                and self.state.current_follow_up_count < self.max_follow_ups
+            )
+            return should, evaluation.follow_up_question
+        if (
+            decision.get("continue_follow_up")
+            and self.state.current_follow_up_count < self.max_follow_ups
+        ):
+            return True, decision.get("question") or evaluation.follow_up_question
+        return False, ""
+
+    async def submit_answer_stream(self, answer: str) -> AsyncIterator[dict]:
+        """
+        流式评估回答（SSE 路径）— 让用户先看到思考过程，最后再出评分。
+
+        事件序列:
+            1. {"type": "analyzing", "data": {...}} — 关键词层客观分析（秒出:
+               命中率/已命中/未命中要点）
+            2. {"type": "analysis", "text": str}    — LLM 结构化思维链（CoT）
+            3. {"type": "evaluation", ...}          — 完整评估 + 追问/下一题
+               （字段与 POST /answer 响应体一致）
+            4. {"type": "done"}
+
+        设计: 评估与追问决策并行（总等待 ≈ max 而非 sum）；关键词层先行
+        让用户在 LLM 评估期间已看到客观分析，不再干等转圈。
+        """
+        if self.state.phase == InterviewPhase.CONCLUSION:
+            yield {"type": "done"}
+            return
+
+        question = self.state.current_question
+        if not question:
+            # 无当前题 → 直接下一题（事件化）
+            turn = await self.next_question()
+            yield {"type": "evaluation", "turn": turn}
+            yield {"type": "done"}
+            return
+
+        # 成本预算控制: 超 warn → 本次评估降级纯规则（省 LLM）
+        budget_status = self.cost_budget.check()
+        degrade_eval = budget_status in ("warn", "hard")
+
+        self.state.phase = InterviewPhase.EVALUATE
+        history_context = build_history_summary(self.state.answers)
+        from .context_budget import fit_eval_context
+
+        history_context, memory_hints = fit_eval_context(
+            history_context,
+            self.state.memory_hints,
+            question_len=len(question.question),
+            answer_len=len(answer),
+        )
+        t0 = time.perf_counter()
+        snap_before = self._llm_snapshot(self.llm)
+        evaluator = (
+            self.evaluator if not degrade_eval
+            else self._rule_only_evaluator()
+        )
+
+        # ① 关键词层先行 — 秒级，先推给用户（评估第一屏）
+        kw = evaluator.keyword_analysis(question, answer)
+        yield {"type": "analyzing", "data": kw}
+
+        # ② 评估 ∥ 追问决策（并行）
+        if kw["boundary"] or degrade_eval:
+            evaluation = await evaluator.evaluate(
+                question, answer,
+                history_context=history_context,
+                memory_hints=memory_hints,
+            )
+            decision = None
+        else:
+            async def _parallel_decide():
+                kw_eval = EvaluationResult(
+                    keyword_match_rate=kw["match_rate"],
+                    overall_comment=kw["comment_hint"],
+                    matched_points=kw["matched"],
+                    missed_points=kw["missed"],
+                )
+                return await self.follow_up_agent.decide(
+                    question, answer, kw_eval,
+                    asked_follow_ups=self._asked_follow_ups(question),
+                )
+
+            evaluation, decision = await asyncio.gather(
+                evaluator.evaluate(
+                    question, answer,
+                    history_context=history_context,
+                    memory_hints=memory_hints,
+                ),
+                _parallel_decide(),
+            )
+
+        # 指标记录（与 submit_answer 同口径）
+        self.state.timings["evaluate"] = round(
+            self.state.timings.get("evaluate", 0) + time.perf_counter() - t0, 2,
+        )
+        after = self._llm_snapshot(self.llm)
+        prev = self.state.metrics.get("evaluate", {
+            "latency": 0, "prompt_tokens": 0, "completion_tokens": 0,
+        })
+        self.state.metrics["evaluate"] = {
+            "latency": round(prev["latency"] + time.perf_counter() - t0, 2),
+            "prompt_tokens": prev["prompt_tokens"] + after.get("prompt_tokens", 0) - snap_before.get("prompt_tokens", 0),
+            "completion_tokens": prev["completion_tokens"] + after.get("completion_tokens", 0) - snap_before.get("completion_tokens", 0),
+            "model": getattr(self.llm, "model", ""),
+        }
+        self.state.evaluate_count += 1
+        snap_after = self._llm_snapshot(self.llm)
+        self.cost_budget.record(
+            prompt_tokens=snap_after.get("prompt_tokens", 0) - snap_before.get("prompt_tokens", 0),
+            completion_tokens=snap_after.get("completion_tokens", 0) - snap_before.get("completion_tokens", 0),
+            model=getattr(self.llm, "model", ""),
+        )
+
+        # 成本硬上限 → 强制结束
+        if budget_status == "hard" or self.cost_budget.check() == "hard":
+            self.state.phase = InterviewPhase.CONCLUSION
+            yield {"type": "evaluation", "turn": TurnResult(
+                phase=InterviewPhase.CONCLUSION,
+                message="本场面试因成本预算限制提前结束。",
+                progress="面试结束（预算限制）",
+                is_finished=True,
+            )}
+            yield {"type": "done"}
+            return
+
+        # 记录 + 跨会话记忆（异步、不阻塞）
+        self.state.answers.append({
+            "question": question,
+            "answer": answer,
+            "evaluation": evaluation,
+            "is_follow_up": self.state.current_follow_up_count > 0,
+        })
+        remember_answer_async(self.memory, MemoryEntry(
+            question=question.question,
+            answer=answer,
+            score=evaluation.total_score,
+            category=question.category,
+            question_type=question.type.value,
+            skills=[question.category],
+            session_id=self.session_id,
+        ))
+
+        # ③ LLM 思维链分析 — 在评分之前推给用户（思考过程先展示）
+        if evaluation.analysis:
+            yield {"type": "analysis", "text": evaluation.analysis}
+
+        # ④ 追问决策 + 组装结果
+        should_follow_up, follow_up_q = self._resolve_follow_up(
+            question, evaluation, decision,
+        )
+        if should_follow_up:
+            self.state.current_follow_up_count += 1
+            self.state.phase = InterviewPhase.FOLLOW_UP
+            yield {"type": "evaluation", "turn": TurnResult(
+                phase=InterviewPhase.FOLLOW_UP,
+                message=follow_up_q,
+                question=question,
+                evaluation=evaluation,
+                progress=f"{self.state.progress} (追问 {self.state.current_follow_up_count}/{self.state.max_follow_ups})",
+                is_finished=False,
+            )}
+        else:
+            self.state.phase = InterviewPhase.NEXT_QUESTION
+            feedback = self._format_feedback(evaluation)
+            next_turn = await self.next_question()
+            yield {"type": "evaluation", "turn": TurnResult(
+                phase=InterviewPhase.NEXT_QUESTION,
+                message=f"{feedback}\n\n{next_turn.message}",
+                question=next_turn.question,
+                evaluation=evaluation,
+                progress=next_turn.progress,
+                is_finished=next_turn.is_finished,
+                report=next_turn.report,
+            )}
+
+        yield {"type": "done"}
 
     async def skip_question(self) -> TurnResult:
         """跳过当前题目"""

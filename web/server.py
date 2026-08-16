@@ -472,6 +472,78 @@ async def submit_answer(session_id: str, payload: dict):
     }
 
 
+@app.post("/api/interviews/{session_id}/answer/stream")
+async def submit_answer_stream(session_id: str, payload: dict):
+    """
+    流式评估回答（SSE）— 用户先看到思考过程，最后再出评分。
+
+    事件序列:
+        analyzing  — 关键词层客观分析（命中率/已命中/未命中，秒出）
+        analysis   — LLM 结构化思维链（CoT，评分前展示）
+        evaluation — 完整评估 + 追问/下一题（字段同 POST /answer）
+        done / error
+    """
+    interviewer = get_interviewer(session_id)
+    answer = (payload.get("answer") or "").strip()
+    if not answer:
+        raise HTTPException(400, "回答不能为空")
+
+    append_message(session_id, role="user", kind="answer", content=answer)
+
+    async def event_stream():
+        try:
+            async for event in interviewer.submit_answer_stream(answer):
+                etype = event["type"]
+                if etype == "analyzing":
+                    yield _sse("analyzing", event["data"])
+                elif etype == "analysis":
+                    yield _sse("analysis", {"text": event["text"]})
+                elif etype == "evaluation":
+                    turn = event["turn"]
+                    evaluation = evaluation_to_dict(turn.evaluation)
+                    report = report_to_dict(turn.report)
+                    stream_report = turn.is_finished and report is None
+
+                    if evaluation:
+                        append_message(session_id, role="assistant", kind="evaluation",
+                                       content="", evaluation=evaluation)
+                    if report:
+                        append_message(session_id, role="assistant", kind="report",
+                                       content="", report=report)
+                        append_metrics_message(session_id, interviewer)
+                    elif turn.phase.value == "follow_up":
+                        append_message(session_id, role="assistant", kind="follow_up",
+                                       content=turn.message, progress=turn.progress)
+                    elif turn.question is not None:
+                        append_message(session_id, role="assistant", kind="question",
+                                       content=turn.question.question,
+                                       question=question_to_dict(turn.question),
+                                       progress=turn.progress)
+                    persist(session_id, interviewer)
+
+                    yield _sse("evaluation", {
+                        "evaluation": evaluation,
+                        "report": report,
+                        "question": question_to_dict(turn.question),
+                        "phase": turn.phase.value,
+                        "message": turn.message if turn.phase.value == "follow_up" else "",
+                        "progress": turn.progress,
+                        "is_finished": turn.is_finished,
+                        "stream_report": stream_report,
+                    })
+                elif etype == "done":
+                    yield _sse("done", {})
+        except Exception as e:
+            logger.warning(f"流式评估失败: {type(e).__name__}: {e}")
+            yield _sse("error", {"detail": str(e)})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/api/interviews/{session_id}/skip")
 async def skip_question(session_id: str):
     """跳过当前题目"""

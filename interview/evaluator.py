@@ -679,6 +679,61 @@ class AnswerEvaluator:
 
     # ── 关键词匹配引擎 ──────────────────────────────────
 
+    def keyword_analysis(
+        self,
+        question: InterviewQuestion,
+        answer: str,
+    ) -> dict:
+        """
+        确定性关键词层分析（0 LLM 调用，秒级响应）。
+
+        供两条路径使用:
+            1. SSE 流式评估: 先推「已命中/未命中要点」给用户看（评估第一屏）
+            2. 追问决策并行化: FollowUpAgent.decide 不依赖 LLM 评语即可启动
+
+        Returns:
+            {"match_rate", "matched", "missed", "relevance", "comment_hint", "boundary"}
+            boundary: 命中确定性边界（空/超短/垃圾/复读）时为标记，否则 ""
+        """
+        a = answer.strip()
+        empty = {"match_rate": 0.0, "matched": [], "relevance": 0.0,
+                 "comment_hint": "未回答", "boundary": "empty"}
+        if not a:
+            empty["missed"] = question.expected_points or []
+            return empty
+        if len(a) < 20:
+            return {"match_rate": 0.2, "matched": [], "relevance": 0.3,
+                    "missed": question.expected_points or [],
+                    "comment_hint": "回答过短", "boundary": "short"}
+        if len(a) >= 20 and len(set(a.lower())) / len(a) < 0.15:
+            return {"match_rate": 0.0, "matched": [], "relevance": 0.0,
+                    "missed": question.expected_points or [],
+                    "comment_hint": "检测到无效输入（重复字符）", "boundary": "spam"}
+        if self._is_question_restate(question.question, a):
+            return {"match_rate": 0.0, "matched": [], "relevance": 0.3,
+                    "missed": question.expected_points or [],
+                    "comment_hint": "检测到题目复读", "boundary": "restate"}
+
+        matched, missed, rate = self._keyword_match(
+            a.lower(),
+            [p.lower() for p in (question.expected_points or [])],
+        )
+        rate = rate if rate is not None else 0.5
+        relevance = self._relevance_match(a, question.question)
+        hint = f"关键词命中率 {rate:.0%}"
+        if missed:
+            hint += f"，未命中: {'、'.join(missed[:2])}"
+        else:
+            hint += "，要点全覆盖"
+        return {
+            "match_rate": rate,
+            "matched": matched,
+            "missed": missed,
+            "relevance": relevance,
+            "comment_hint": hint,
+            "boundary": "",
+        }
+
     def _keyword_match(
         self,
         answer_lower: str,
